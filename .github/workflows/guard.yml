@@ -5,7 +5,7 @@ name: tianyi guard
 
 on:
   push:
-    branches: [main]
+    branches: [main, tianyi]
   pull_request:
 
 jobs:
