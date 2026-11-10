@@ -155,6 +155,10 @@ node tools/tyx_recommend.js merge ai.json 歌词.txt    # AI 建议 × 本地启
 - `annotate`（工具）与 93 都遵循“已有 `!` / 已有 `*` 的行不动”；`*` 记法不叠加
   是故意的（避免 `*a*b*c*` 嵌套歧义）。
 - 桥段 `hold:'still'` 只在 strong 模式且用户未写该行 hold 时注入。
+- **`!` 的決め等级**：`!` 永远生效——产生行级强调（flash 事件/enter 偏好）；但完整的
+  キメ演出（強制 single cut、KIME 池 layout/enter 强制）在上游「統一感」开关
+  （`project.unify`）开启时才生效，这是上游默认值如此，不是 fork 行为。
+  依赖此文档做产品说明时记得带上这个前提。
 - demo 构建（`demo/index.html`）是简体中文版整包，字体仍取自 Google Fonts
   （离线打开时回退系统字体，见上游说明）。
 
