@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "source": "demo_lyrics.txt",
+  "bangs": {
+    "policy": "ends"
+  },
+  "sections": [
+    {
+      "type": "verse",
+      "lineStart": 0,
+      "lineEnd": 10,
+      "basis": "重复块之间的独有段落"
+    },
+    {
+      "type": "chorus",
+      "lineStart": 11,
+      "lineEnd": 14,
+      "basis": "行 11..14 为相互重复块（hook 检测命中 4 行中的重复链）"
+    },
+    {
+      "type": "verse",
+      "lineStart": 15,
+      "lineEnd": 20,
+      "basis": "重复块之间的独有段落"
+    },
+    {
+      "type": "chorus",
+      "lineStart": 21,
+      "lineEnd": 24,
+      "basis": "行 21..24 为相互重复块（hook 检测命中 4 行中的重复链）"
+    },
+    {
+      "type": "outro",
+      "lineStart": 25,
+      "lineEnd": 29,
+      "basis": "距结尾 ≤3 行"
+    }
+  ],
+  "moods": [
+    {
+      "preset": "tyblue",
+      "score": 17,
+      "basis": "“湖”@灯影折进湖水的褶皱 | “水”@灯影折进湖水的褶皱 | “蓝”@天依在湖蓝里醒来"
+    },
+    {
+      "preset": "tyidol",
+      "score": 8,
+      "basis": "“麦克风”@工作站亮起 麦克风靠岸 | “亮起”@工作站亮起 麦克风靠岸 | “麦克风”@工作站亮起 麦克风靠岸"
+    },
+    {
+      "preset": "tydream",
+      "score": 4,
+      "basis": "“呼吸”@呼吸接住呼吸 | “湖面”@湖面只剩回声了"
+    }
+  ],
+  "humanReview": true,
+  "note": "本地启发（离线保守）。人审 section 边界后把 annotated.txt 贴进 JIZURA；要更强的语义推荐走 merge 子命令。"
+}

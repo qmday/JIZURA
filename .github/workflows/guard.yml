@@ -1,0 +1,61 @@
+name: tianyi guard
+
+# 二开门禁（docs/FORK_GUIDE.md §4 的自动化部分）。
+# 前提：本文件放在你的 JIZURA 克隆仓库的 .github/workflows/ 下，fork/ 与本包同仓。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 语法检查（fork + tools）
+        run: |
+          set -e
+          for f in fork/*.js tools/*.js; do
+            node --check "$f"
+          done
+
+      - name: 确定性守卫 —— fork 内禁止 Math.random
+        run: |
+          if grep -rn "Math\.random" fork/; then
+            echo "::error fork/ 里出现 Math.random：渲染必须走种子随机 (J.r / J.rs / rng)"
+            exit 1
+          fi
+
+      - name: 完整构建（含 fork；补丁无关，两种集成都认）
+        run: python3 tools/fork_build.py --dev
+
+      - name: 构建产物包含 fork 代码
+        run: |
+          grep -c "tianyiWrapped" index.html
+          grep -c "天依蓝调" index.html
+
+      - name: 推荐器 CLI 冒烟（离线 fixture）
+        run: |
+          node tools/tyx_recommend.js auto fixtures/demo_lyrics.txt /tmp/demo
+          test -f /tmp/demo.annotated.txt
+          node tools/tyx_recommend.js merge fixtures/demo.report.json fixtures/demo_lyrics.txt /tmp/demo2
+          test -f /tmp/demo2.annotated.txt
+
+      # ————— 以下为“原地解析”的黄金回归（需要能装 playwright 的环境时要放开）——
+      # - name: golden plan regression
+      #   run: |
+      #     pip install playwright
+      #     python3 -m playwright install chromium
+      #     python3 dev/smoke_all.py t_all        # 上游全套渲染烟囱（fork 参与）
+      #     python3 dev/cost_scan.py t_all 45     # 超时帧 >45ms 即失败

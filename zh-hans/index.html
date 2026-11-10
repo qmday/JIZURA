@@ -60845,6 +60845,435 @@ J.ui = S;
 J.uiApi = { toast, replan, syncUI, pause, seek, flushSave, loadAudioFile, restartPreview, exportRange, exportRangeLines };
 })();
 
+/* ============================================================
+   天依 fork — 89: shared constants between the browser hook (93) and the
+   recommendation CLI (tools/tyx_recommend.js). UMD, zero dependencies.
+   Single source of truth for the section-marker grammar and the mood lexicon.
+   ============================================================ */
+(() => {
+'use strict';
+
+/* section markers: lines like [intro] / [主歌] / [副歌1] / [桥段] that describe song
+   structure. They are REMOVED from the lyrics before the upstream parser sees them
+   (upstream would render unknown brackets as literal text). Interlude tags
+   ([間奏][间奏][inst]…) stay with the upstream parser and are never stripped here. */
+const SECTION_TYPES = ['intro', 'prechorus', 'chorus', 'bridge', 'verse', 'outro'];
+const SECTION_LABEL = { intro: '前奏', prechorus: '导歌', chorus: '副歌', bridge: '桥段', verse: '主歌', outro: '尾声' };
+
+const TAG_RULES = [
+  /* [zhPrefixRe, enWholeRe, type] — type:null ⇒ 上游记法（间奏家族），永不剥离 */
+  [/^(間奏|间奏|interlude|instrumental|inst|간주)/, /^$/, null],
+  [/^(前奏|开头|开场)/,                            /^(intro|opening)\s*\d*$/,               'intro'],
+  [/^(导歌|预副歌)/,                               /^(prechorus|pre-?chorus|build)\s*\d*$/, 'prechorus'],
+  [/^(副歌)/,                                      /^(chorus|refrain|hook|drop)\s*\d*$/,    'chorus'],
+  [/^(桥)/,                                        /^bridge\s*\d*$/,                        'bridge'],
+  [/^(主歌)/,                                      /^verse\s*\d*$/,                         'verse'],
+  [/^(尾声|结尾)/,                                 /^(outro|ending|out)\s*\d*$/,            'outro'],
+];
+const matchTag = tag => {
+  const s = String(tag || '').trim().toLowerCase();
+  for (const [zhRe, enRe, type] of TAG_RULES) {
+    if (zhRe.test(s) || enRe.test(s)) return type;               // matched: null ⇒ not ours, else its section type
+  }
+  /* a/b/c/d 段 · 中文段落别名: 主歌 a段, 导歌 b段, 副歌 c段, 桥段 d段 */
+  const seg = s.match(/^(a|b|c|d)段$/);
+  return seg ? { a: 'verse', b: 'prechorus', c: 'chorus', d: 'bridge' }[seg[1]] : null;
+};
+const isSectionMark = lineText => {
+  const s = String(lineText || '').replace(/^\s*\[\s*\d+:\d+(?:[.:]\d+)?\]\s*/, '');   // strip a leading LRC tag
+  const m = s.match(/^\[\s*([^\[\]]{1,12})\s*\]$/);
+  if (!m) return null;
+  const type = matchTag(m[1]);
+  return type ? { type, tag: m[1].trim() } : null;   // unknown brackets → not ours, upstream keeps them verbatim
+};
+
+/* the lyric cleaner used by the heuristics: strip LRC tags + upstream notation */
+const cleanLine = lineText => String(lineText || '')
+  .replace(/^\s*\[\s*\d+:\d+(?:[.:]\d+)?\]\s*/g, '')
+  .replace(/\*([^*]+)\*/g, '$1')
+  .replace(/[!！]+\s*$/g, '')
+  .replace(/\|.*$/, '')
+  .replace(/[\s、。，．,.!！?？…・「」『』（）()"'“”‘’~〜ー―\-—_]/g, '');
+
+/* tiny zh mood lexicon → preset weights (space-separated tokens, one string per preset).
+   Tokens are matched by "line contains token"; 1-char tokens match anywhere, longer
+   tokens match as substrings. Deliberately small: real recommends come from the AI
+   bridge, this just seeds the first guess offline. */
+const MOOD_LEX = {
+  tysweet:  ['甜', '糖', '笑', '喜欢你', '宠', '温柔', '可爱', '心动', '少女', '糖果', '奶茶', '咕', '心跳', '恋', '今天', '呀'],
+  tyblue:   ['蓝', '天依', '想你', '等', '湖', '水', '泪', '相思', '沉默', '停止', '遥', '波纹', '眼神', '深深的', '别走', '回来', '留'],
+  tynova:   ['星', '电子', '光', '夜空', '信号', '引力', '数据', '雷达', '幻', '湛蓝', '飞行', '磁', '脉冲', '失联', '巡航', '轨道'],
+  tyfire:   ['火', '燃', '战', '闯', '烈', '雷', '怒', '醒', '冲', '吼', '破', '决', '命', '势', '唤醒', '咆哮', '生死'],
+  tyspring: ['青春', '校园', '樱', '操场', '教室', '单车', '蝉', '夏日', '奔跑', '明天', '少年', '街道', '清爽', '课本', '起风', '走吧'],
+  tyghost:  ['黑', '暗', '镜', '影', '坏', '谎', '咒', '冷', '蚀', '空壳', '无声', '崩溃', '裂缝', '嘲弄', '沉沦', '枷锁', '崩坏'],
+  tywafolk: ['洛水', '华夏', '墨', '长', '长安', '古', '琴', '弦', '青砖', '折扇', '灯', '扇', '山水', '诗', '云袖', '翩翩', '宫商'],
+  tydream:  ['梦', '泡', '云雾', '倒影', '漂', '潮', '羽', '蝶', '鳞', '蜃楼', '浮', '幽', '湖面', '涟', '光斑', '呼吸'],
+  tyidol:   ['应援', '舞台', '告白', '麦克风', '欢呼', '光芒', '掌声', '奶油', '打卡', '亮起', 'WOW', '灯光', '打call', '偶像', '出道'],
+  tynight:  ['深夜', '电台', '凌晨', '微', '失眠', '雾', '旧城', '熄灭', '缱', '夜', '倦', '晚风', '路灯', '落单', '无人', '入睡'],
+};
+
+const isInterludeRow = row =>
+  /^\s*\[\s*(?:\d+:\d+(?:[.:]\d+)?\]\s*)?\[?\s*(間奏|间奏|interlude|instrumental|inst|간주)/i.test(String(row || ''));
+
+const api = { SECTION_TYPES, SECTION_LABEL, matchTag, isSectionMark, isInterludeRow, cleanLine, MOOD_LEX };
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+(typeof window !== 'undefined' ? window : globalThis).JTYX = api;
+})();
+
+/* ============================================================
+   天依 fork — 90: config schema / validation.
+   All config lives in one place: project.tianyi (upstream never reads it,
+   so it is always safe to carry through project files).
+   INVARIANT: with enabled:false (or config absent), J.plan output must be
+   bit-identical to upstream. Guarded by dev/golden checks + smoke runs.
+   ============================================================ */
+(() => {
+'use strict';
+
+const SCHEMA_VERSION = 1;
+const KEY = 'tianyi';
+
+const DEFAULTS = Object.freeze({
+  /* master switch — off ⇒ the fork contributes nothing at all */
+  enabled: true,
+  /* textual section marks ([主歌]/[副歌]…) recommended level: strip + apply bangs */
+  sections: 'auto',           // 'off' | 'auto' (strip + bangs) | 'strong' (also per-section parts overrides)
+  /* which "!" goes on chorus lines: 'off' | 'first' | 'ends' | 'all' */
+  chorusBangs: 'ends',
+  /* substring list wrapped into *词* for emphasis (max 8 words × 12 chars) */
+  starWords: [],
+});
+
+const SCHEMA = {
+  enabled:      { type: 'bool',  affect: 'all' },        // 整体开关
+  sections:     { type: 'enum',  values: ['off', 'auto', 'strong'], affect: 'planner' },
+  chorusBangs:  { type: 'enum',  values: ['off', 'first', 'ends', 'all'], affect: 'planner' },
+  starWords:    { type: 'words', max: 8, maxLen: 12, affect: 'planner' },
+};
+
+/* validation: unknown keys are PRESERVED (kept as-is), illegal values fall back
+   to the default values, every fallback emits a warning string */
+function validate(cfgIn) {
+  const warnings = [];
+  const out = Object.assign({}, DEFAULTS);
+  for (const [k, v] of Object.entries(Object(cfgIn) || {})) {
+    const r = SCHEMA[k];
+    if (!r) { continue; }                               // unknown key: preserved harmlessly, ignored by the fork
+    if (r.type === 'bool') {
+      if (typeof v === 'boolean') out[k] = v; else warnings.push(`tianyi.${k}: expected boolean, got ${typeof v}`);
+    } else if (r.type === 'enum') {
+      if (r.values.includes(v)) out[k] = v; else warnings.push(`tianyi.${k}: expected one of ${r.values.join('|')}`);
+    } else if (r.type === 'words') {
+      if (Array.isArray(v) && v.every(x => typeof x === 'string' && x.length > 0 && x.length <= r.maxLen)) out[k] = v.slice(0, r.max);
+      else warnings.push(`tianyi.${k}: expected up to ${r.max} strings ≤ ${r.maxLen} chars`);
+    }
+  }
+  for (const k of Object.keys(SCHEMA)) if (out[k] === undefined) { out[k] = DEFAULTS[k]; warnings.push(`tianyi.${k}: missing → default`); }
+  return { cfg: out, warnings };
+}
+
+/* migration chain (schemaVersion v1): add one pure function per schema bump, old→new */
+const MIGRATIONS = [];
+function migrate(cfgIn) {
+  let cfg = Object.assign({}, Object(cfgIn) || {});
+  const from = typeof cfg.schemaVersion === 'number' && cfg.schemaVersion >= 1 ? cfg.schemaVersion : 1;
+  for (let v = from; v < SCHEMA_VERSION; v++) { if (typeof MIGRATIONS[v] === 'function') MIGRATIONS[v](cfg); }
+  cfg.schemaVersion = SCHEMA_VERSION;
+  return cfg;
+}
+
+J.TY = { SCHEMA_VERSION, KEY, DEFAULTS, SCHEMA, validate, migrate };
+})();
+
+/* ============================================================
+   天依 fork — 91: style packs (pure data, registered like upstream 11p_styles).
+   洛天依应援色 = 灰 (#8C8C94 白灰 · #46464C 深灰) + 粉丝梗色「天依蓝」#66CCFF。
+   Never overwrites a core style; pushed to the end of J.STYLE_ORDER.
+   ============================================================ */
+(() => {
+'use strict';
+
+const S = {
+  tianyi: {
+    name: '天依蓝调', desc: '天依蓝×灰白·湖水光晕',
+    moods: ['pop', 'emotional', 'calm'],
+    schemes: [
+      /* 主唱谱: 暗夜蓝底 + 天依蓝强调 (全曲基准感) */
+      { bg: '#0D1216', fg: '#EAF4FA', sub: '#7E93A0', accent: '#66CCFF', accent2: '#9BE7FF', ink: '#66CCFF', dim: '#1A242B', ghostA: '#66CCFF', ghostB: '#FFFFFF', grad: ['#66CCFF', '#EAF4FA'] },
+      /* 白灰: 洛天依应援灰的纸面感 */
+      { bg: '#F3F5F7', fg: '#3B4148', sub: '#707A84', accent: '#12A3D8', accent2: '#3B4148', ink: '#3B4148', dim: '#DCE4EA', ghostA: '#66CCFF', ghostB: '#12A3D8', swap: true },
+      /* 高亮: 天依蓝全底 (决定段落变色时给副歌) */
+      { bg: '#66CCFF', fg: '#0F1418', sub: '#38596E', accent: '#FFFFFF', accent2: '#2E3438', ink: '#0F1418', dim: '#56AEE0', ghostA: '#FFFFFF', ghostB: '#0F1418' },
+    ],
+    fonts: { display: ['gothic_black', 'dela', 'round'], serif: ['mincho_light', 'mincho'], body: ['gothic_med'], mono: ['mono'] },
+    texture: { grain: 0.4, paper: 0, scan: 0.2 }, ghost: 0.55, glow: 1.2,
+    bias: { layout: { vcols: 1.6, mixed: 1.4, wave: 1.4, gloss: 1.3, center: 1.2 },
+            enter: { pop: 1.6, wipe: 1.4, drop: 1.2, blur: 1.2 },
+            exit: { drift: 1.4, shrink: 1.3, blur: 1.2 } },
+    decor: { dots: 1, leaders: 0.8, rings: 0.8, sparks: 0.7, waveform: 0.6, grid: 0.4 },
+    hud: false,
+  },
+  tianyiNight: {
+    name: '天依夜航', desc: '深灰蓝×霓虹·星空弹幕感',
+    moods: ['emotional', 'glitch', 'graphic'],
+    schemes: [
+      { bg: '#14181C', fg: '#F2F7FA', sub: '#8FA0AC', accent: '#66CCFF', accent2: '#FF6FA6', ink: '#66CCFF', dim: '#22282E', ghostA: '#66CCFF', ghostB: '#FF6FA6', grad: ['#66CCFF', '#2E3438'] },
+      { bg: '#2A2E33', fg: '#66CCFF', sub: '#9BB3C2', accent: '#FFFFFF', accent2: '#FFB378', ink: '#66CCFF', dim: '#3B4148', ghostA: '#FFFFFF', ghostB: '#66CCFF' },
+      { bg: '#F2F7FA', fg: '#1A232B', sub: '#5A6B76', accent: '#12A3D8', accent2: '#46464C', ink: '#1A232B', dim: '#DCE4EA', ghostA: '#12A3D8', ghostB: '#66CCFF', swap: true },
+    ],
+    fonts: { display: ['zenkaku', 'dela'], serif: ['mincho'], body: ['sansui'], mono: ['mono'] },
+    texture: { grain: 0.55, paper: 0, scan: 0.45 }, ghost: 0.85, glow: 1.35,
+    bias: { layout: { vcols: 1.8, marquee: 1.5, tile: 1.3, huge: 1.4, type: 1.2 },
+            enter: { slice: 1.5, scramble: 1.4, flicker: 1.2, stretch: 1.3 },
+            exit: { glitch: 1.5, slice: 1.4, fall: 1.2 } },
+    decor: { barcode: 0.9, grid: 0.8, waveform: 0.8, rings: 0.6, leaders: 0.5 },
+    hud: true, glitchBoost: 1.15,
+  },
+};
+
+for (const [k, v] of Object.entries(S)) {
+  if (J.STYLES[k]) continue;              // never overwrite a core/user style
+  J.STYLES[k] = v;
+  if (!J.STYLE_ORDER.includes(k)) J.STYLE_ORDER.push(k);
+}
+/* tianyi.getDate? no: same as upstream extra styles: NOT in J.BASE_STYLES (loaded before us),
+   so these styles do NOT get the `extra` flag either — they are always visible in the style
+   grid and always eligible for random picks. As a mild weight hint, keep them OUT of the
+   core おまかせ styles lists (upstream mood `styles` arrays simply don't mention them). */
+})();
+
+/* ============================================================
+   天依 fork — 92: mood presets (模板情绪).
+   Same shape as upstream J.MOODS (src/08b_omakase.js): each preset is a
+   {name, fx ranges, layout/enter/exit lists, styles[].} — omakase picks by
+   mood; parts are picked from the given part key lists, styles by
+   st.moods containing the mood key. Existing keys only (core registry keys).
+   ============================================================ */
+(() => {
+'use strict';
+
+/* part lists use only VERIFIED upstream registry keys (core 06/05);
+   styles may name extra styles (sakura/vapor/…) — when the 追加分 switch is
+   off, upstream's own randomOk() filters them out, so listing is always safe */
+const L = (m) => m;
+
+J.MOODS.tysweet = {
+  name: '甜系治愈', fx: { motion: [0.75, 1], glitch: [0.05, 0.2], chroma: [0.3, 0.5], decor: [0.7, 1], density: [0.6, 0.9], texture: [0.1, 0.35], bgSwitch: [0.5, 0.9] },
+  layout: ['mixed', 'wave', 'scatter', 'labels', 'pill', 'gloss', 'center'],
+  enter: ['pop', 'drop', 'stretch', 'zoom', 'blur'], exit: ['scatter', 'shrink', 'stretch', 'blur'],
+  styles: ['tianyi', 'magenta', 'candy', 'sakura'],
+};
+J.MOODS.tyblue = {
+  name: '蓝调深情', fx: { motion: [0.55, 0.8], glitch: [0.15, 0.35], chroma: [0.5, 0.8], decor: [0.35, 0.65], density: [0.4, 0.7], texture: [0.5, 0.85], bgSwitch: [0.25, 0.55] },
+  layout: ['center', 'vcols', 'stack', 'huge', 'condensed', 'mixed'],
+  enter: ['assemble', 'blur', 'zoom', 'wipe', 'type'], exit: ['drift', 'fall', 'blur', 'shrink'],
+  styles: ['tianyi', 'tianyiNight', 'noir', 'mono'],
+};
+J.MOODS.tynova = {
+  name: '星空电子', fx: { motion: [0.6, 0.9], glitch: [0.35, 0.6], chroma: [0.55, 0.85], decor: [0.5, 0.8], density: [0.5, 0.8], texture: [0.3, 0.6], bgSwitch: [0.35, 0.7] },
+  layout: ['vcols', 'marquee', 'tile', 'tunnel', 'equalizer', 'center', 'typeSpecimen'],
+  enter: ['scramble', 'slice', 'stretch', 'zoom', 'assemble'], exit: ['glitch', 'slice', 'drift', 'scatter'],
+  styles: ['tianyi', 'tianyiNight', 'synth80', 'vapor'],
+};
+J.MOODS.tyfire = {
+  name: '热血燃', fx: { motion: [0.85, 1], glitch: [0.4, 0.7], chroma: [0.6, 0.9], decor: [0.5, 0.85], density: [0.7, 1], texture: [0.35, 0.7], bgSwitch: [0.4, 0.8] },
+  layout: ['huge', 'vcols', 'condensed', 'crossBands', 'columnsBig', 'marquee'],
+  enter: ['scramble', 'slice', 'stretch', 'zoom', 'drop'], exit: ['explode', 'glitch', 'fall', 'slice'],
+  styles: ['crimson', 'noir', 'hud', 'acid', 'tianyiNight'],
+};
+J.MOODS.tyspring = {
+  name: '青春校园', fx: { motion: [0.7, 0.95], glitch: [0.1, 0.3], chroma: [0.3, 0.6], decor: [0.6, 0.95], density: [0.5, 0.8], texture: [0.25, 0.55], bgSwitch: [0.4, 0.75] },
+  layout: ['mixed', 'labels', 'pill', 'ring', 'center', 'stickerBomb', 'tape'],
+  enter: ['pop', 'drop', 'spin', 'wipe', 'type'], exit: ['scatter', 'shrink', 'wipe', 'blur'],
+  styles: ['sakura', 'candy', 'paper', 'kraft', 'tianyi'],
+};
+J.MOODS.tyghost = {
+  name: '黑化', fx: { motion: [0.5, 0.8], glitch: [0.45, 0.75], chroma: [0.4, 0.7], decor: [0.3, 0.6], density: [0.35, 0.6], texture: [0.65, 1], bgSwitch: [0.15, 0.4] },
+  layout: ['stack', 'huge', 'type', 'vcols', 'condensed'],
+  enter: ['flicker', 'blur', 'type', 'scramble'], exit: ['glitch', 'fall', 'blur', 'drift'],
+  noHold: ['wave', 'breathe'],
+  styles: ['noir', 'mono', 'crimson', 'tianyiNight'],
+};
+J.MOODS.tywafolk = {
+  name: '国风水墨', fx: { motion: [0.4, 0.65], glitch: [0.05, 0.2], chroma: [0.15, 0.4], decor: [0.35, 0.65], density: [0.3, 0.55], texture: [0.6, 0.95], bgSwitch: [0.15, 0.4] },
+  layout: ['center', 'circle', 'halfVertical', 'hanging', 'kanjiFocus', 'vcols'],
+  enter: ['type', 'wipe', 'blur', 'assemble'], exit: ['drift', 'blur', 'wipe', 'shrink'],
+  styles: ['sumi', 'paper', 'kraft', 'mono', 'gold'],
+};
+J.MOODS.tydream = {
+  name: '空灵幻想', fx: { motion: [0.5, 0.75], glitch: [0.1, 0.3], chroma: [0.4, 0.7], decor: [0.45, 0.75], density: [0.4, 0.65], texture: [0.55, 0.9], bgSwitch: [0.25, 0.55] },
+  layout: ['orbit', 'circle', 'wave', 'hanging', 'bubbles', 'center'],
+  enter: ['blur', 'assemble', 'zoom', 'type'], exit: ['drift', 'blur', 'shrink', 'fall'],
+  styles: ['vapor', 'ocean', 'forest', 'tianyi'],
+};
+J.MOODS.tyidol = {
+  name: '偶像应援', fx: { motion: [0.85, 1], glitch: [0.15, 0.4], chroma: [0.45, 0.75], decor: [0.75, 1], density: [0.65, 0.95], texture: [0.2, 0.45], bgSwitch: [0.5, 0.9] },
+  layout: ['huge', 'marquee', 'ring', 'wave', 'pill', 'scatter', 'zoomRepeat'],
+  enter: ['pop', 'drop', 'spin', 'zoom', 'flicker'], exit: ['scatter', 'shrink', 'stretch', 'blur', 'explode'],
+  styles: ['tianyi', 'magenta', 'candy', 'acid'],
+};
+J.MOODS.tynight = {
+  name: '深夜电台', fx: { motion: [0.3, 0.55], glitch: [0.05, 0.2], chroma: [0.2, 0.45], decor: [0.25, 0.55], density: [0.3, 0.55], texture: [0.6, 0.95], bgSwitch: [0.1, 0.35] },
+  layout: ['type', 'gloss', 'vcols', 'center', 'stack', 'condensed'],
+  enter: ['type', 'blur', 'wipe', 'assemble'], exit: ['drift', 'blur', 'wipe', 'shrink'],
+  styles: ['tianyiNight', 'noir', 'mono', 'sumi'],
+};
+})();
+
+/* ============================================================
+   天依 fork — 93: J.plan hook 「结构记法 → 整体安排」 (contract: FORK_GUIDE.md)
+
+   投入口（写在歌词文本里，一行一个）：
+     [前奏]/[Intro]  [主歌]/[Verse 1]  [导歌]/[Pre]  [副歌]/[Chorus 2]  [桥]/[Bridge]  [尾声]/[Outro]
+     [间奏 8] 交给上游 parser，本 fork 不碰。
+   规则（由 project.tianyi 配置，见 90_config.js）：
+     · 标记行被剥离（上游会把未识别的 [] 行当文字渲染，剥离是纯收益）；
+     · chorus 段按 chorusBangs 在行尾补成願めCut `!`（off/first/ends/all）；
+     · starWords 里的词包成 *词*（上游行级 emph 语法）；
+     · sections:'strong' 时桥段行在用户未指定时给 hold:'still'。
+   安全性 / 不出问题契约：
+     · 只有 project.tianyi 存在且 enabled !== false 才介入——无 opt-in ⇒ 与上游逐位一致；
+     · 不写用户 project：全部变换发生在浅拷贝上（只替换 lyrics/overrides/tianyi 三个键）；
+     · 用户已写的每行 overrides 永远优先（只填缺口，不覆盖）；
+     · 任何异常 → console.warn + 完整走原 J.plan（fail-safe）。
+   ============================================================ */
+(() => {
+'use strict';
+
+const X = (typeof JTYX !== 'undefined') ? JTYX : null;
+if (!X || !J.TY) { console.warn('JIZURA fork: 93_sections needs 89_tyx_shared + 90_config; hook disabled'); return; }
+const isInterlude = X.isInterludeRow;
+
+/* ---- index mapping: replicate the upstream parser's row→plan-line 1:n shape ----
+   LRC row with N timestamps → N plan lines；blank/无文本行 → 0；普通行 → 1。 */
+const keptCount = rawRow => {
+  let s = String(rawRow), n = 0, m;
+  while ((m = s.match(/^\s*\[(\d+):(\d+(?:[.:]\d+)?)\]/))) { n++; s = s.slice(m[0].length); }
+  s = s.trim();
+  return s ? (n || 1) : 0;
+};
+
+/* 行尾补 bang —— 尊重上游记法窄缝：`!` 必须落在 note(|注释) 之前的正文尾部 */
+const addBang = row => {
+  let cut = row, note = '';
+  const bar = row.indexOf('|');
+  if (bar >= 0) { cut = row.slice(0, bar); note = row.slice(bar); }
+  if (/[!！]\s*$/.test(cut)) return null;                       // 已是願めCut → 无需重复
+  cut = cut.replace(/\s*$/, '');
+  if (!cut) return null;                                        // 空白/纯注释行不补
+  return cut + '!' + note;
+};
+
+const addStar = (row, word) => {
+  if (row.indexOf('*') >= 0) return null;                       // 已有 emph 记法 → 不叠加，避免嵌套歧义
+  const at = row.indexOf(word);
+  if (at < 0) return null;
+  return row.slice(0, at) + '*' + word + '*' + row.slice(at + word.length);
+};
+
+/* returns a new project (shallow copy) or the ORIGINAL when nothing changed */
+function transform(project, cfg) {
+  const lyrics = project.lyrics;
+  if (typeof lyrics !== 'string' || !lyrics) return project;
+
+  const rows = lyrics.split(/\r?\n/);
+  const marks = [];
+  rows.forEach((row, ri) => {
+    const m = X.isSectionMark(row);
+    if (m) marks.push({ ri, ...m });
+  });
+  /* strip → kept rows; strip is unconditional once opted-in (upstream renders raw brackets) */
+  let changed = marks.length > 0;
+  const keptRow = [];                                           // keptRowIndex → original row index
+  const linesAt = [];                                           // original row → first plan-line index
+  let pi = 0;
+  rows.forEach((row, ri) => {
+    if (marks.some(mk => mk.ri === ri)) return;
+    linesAt[ri] = pi;
+    pi += keptCount(row);
+    keptRow.push(ri);
+  });
+
+  const replacements = new Map();                               // original row index → new row text
+  /* starWords (any section) */
+  for (const w of cfg.starWords) {
+    for (const ri of keptRow) {
+      if (isInterlude(rows[ri])) continue;
+      const next = addStar(rows[ri], w);
+      if (next != null) { replacements.set(ri, next); changed = true; break; }
+    }
+  }
+  /* chorus bangs + strong-mode hold */
+  const ovAdds = new Map();                                     // original row → {} ov additions
+  if (cfg.sections !== 'off') {
+    const spans = marks.map((m, i) => ({
+      type: m.type, s: m.ri, e: (i + 1 < marks.length ? marks[i + 1].ri : rows.length),
+    }));
+    for (const sp of spans) {
+      const content = [];
+      for (let ri = sp.s + 1; ri < sp.e; ri++) {
+        if (marks.some(mk => mk.ri === ri)) continue;
+        if (isInterlude(rows[ri])) { if (content.length) break; continue; }   // 间奏结束该段；段首间奏只跳过
+        if (!rows[ri].trim() || !keptCount(rows[ri])) continue;
+        content.push(ri);
+      }
+      if (!content.length) continue;
+      if (sp.type === 'chorus' && cfg.chorusBangs !== 'off') {
+        const pick = cfg.chorusBangs === 'all' ? content : cfg.chorusBangs === 'first' ? [content[0]] : [content[content.length - 1]];
+        for (const ri of pick) if (!replacements.has(ri)) { const r2 = addBang(rows[ri]); if (r2 != null) { replacements.set(ri, r2); changed = true; } }
+      } else if (sp.type === 'bridge' && cfg.sections === 'strong') {
+        for (const ri of content) {
+          if (isInterlude(rows[ri])) continue;
+          const li = linesAt[ri], cur = (project.overrides || {})[li];
+          if (cur && cur.hold != null) continue;                // 用户已写 hold → 用户赢
+          ovAdds.set(li, { hold: 'still' });
+        }
+      }
+    }
+  }
+  if (!changed && !ovAdds.size) return project;
+
+  /* assemble new text: strip marker rows themselves (they were never kept rows) */
+  const out = [];
+  rows.forEach((row, ri) => { if (!marks.some(mk => mk.ri === ri)) out.push(replacements.get(ri) ?? row); });
+  const newText = out.join('\n');
+  if (newText === lyrics && !ovAdds.size) return project;
+
+  /* ov merge: user keys win; never touch rows the user already set */
+  let ov = project.overrides;
+  if (ovAdds.size) {
+    ov = Object.assign({}, (project.overrides && typeof project.overrides === 'object') ? project.overrides : {});
+    for (const [li, add] of ovAdds) {
+      const cur = (project.overrides || {})[li];
+      ov[li] = Object.assign({}, cur || {}, add);               // add fills gaps; user keys already checked above
+    }
+  }
+
+  return Object.assign({}, project, {
+    lyrics: newText,
+    overrides: ov,
+    tianyi: Object.assign({}, project.tianyi, J.TY.migrate(project.tianyi)),   // config provenance (harmless, unknown keys kept)
+  });
+}
+
+/* ---- the wrap ---- */
+if (!J.plan || J.plan.tianyiWrapped) { if (J.plan && J.plan.tianyiWrapped) return; console.warn('JIZURA fork: J.plan missing, hook disabled'); return; }
+const origPlan = J.plan;
+J.plan = function (project, audio) {
+  if (!project || !project.tianyi || project.tianyi.enabled === false) return origPlan(project, audio);   // fast path = exact upstream behavior
+  try {
+    const { cfg, warnings } = J.TY.validate(J.TY.migrate(project.tianyi));
+    if (warnings.length) console.warn('JIZURA fork tianyi config:', warnings.join(' / '));
+    const p2 = transform(project, cfg);
+    return origPlan(p2 || project, audio);
+  } catch (e) {
+    console.warn('JIZURA fork: sections hook skipped (fail-safe → upstream) :', e && e.message);
+    return origPlan(project, audio);
+  }
+};
+J.plan.tianyiWrapped = true;
+})();
+
 </script>
 </body>
 </html>

@@ -6,7 +6,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 name = sys.argv[1]
 args = sys.argv[2:]
-allsrc = sorted(glob.glob('src/*.js'))
+allsrc = sorted(glob.glob('src/*.js')) + sorted(glob.glob('fork/*.js'))
 packs = [f for f in allsrc if os.path.basename(f).startswith('11p_')]
 core = [f for f in allsrc if f not in packs]
 chosen = packs if '--all-packs' in args else [a for a in args if a.endswith('.js')]
