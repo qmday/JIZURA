@@ -61025,6 +61025,8 @@ const DEFAULTS = Object.freeze({
   chorusBangs: 'ends',
   /* substring list wrapped into *词* for emphasis (max 8 words × 12 chars) */
   starWords: [],
+  /* section type → mood preset key (fork/92): per-section part styling */
+  sectionMoods: null,
 });
 
 const SCHEMA = {
@@ -61032,6 +61034,7 @@ const SCHEMA = {
   sections:     { type: 'enum',  values: ['off', 'auto', 'strong'], affect: 'planner' },
   chorusBangs:  { type: 'enum',  values: ['off', 'first', 'ends', 'all'], affect: 'planner' },
   starWords:    { type: 'words', max: 8, maxLen: 12, affect: 'planner' },
+  sectionMoods: { type: 'map',   maxKeys: 6, affect: 'planner' },   // value-preset validated in 93 (needs J.MOODS loaded)
 };
 
 /* validation: unknown keys are PRESERVED (kept as-is), illegal values fall back
@@ -61049,6 +61052,14 @@ function validate(cfgIn) {
     } else if (r.type === 'words') {
       if (Array.isArray(v) && v.every(x => typeof x === 'string' && x.length > 0 && x.length <= r.maxLen)) out[k] = v.slice(0, r.max);
       else warnings.push(`tianyi.${k}: expected up to ${r.max} strings ≤ ${r.maxLen} chars`);
+    } else if (r.type === 'map') {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        const keys = Object.keys(v);
+        const clean = {};
+        for (const kk of keys.slice(0, r.maxKeys)) if (typeof v[kk] === 'string' && v[kk]) clean[kk] = v[kk];
+        if (keys.length > r.maxKeys) warnings.push(`tianyi.${k}: >${r.maxKeys} entries, extra ignored`);
+        if (Object.keys(clean).length) out[k] = clean;   // value checks (preset keys) happen in 93, where J.MOODS exists
+      } else if (v !== null) warnings.push(`tianyi.${k}: expected an object (sectionType → preset)`);
     }
   }
   for (const k of Object.keys(SCHEMA)) if (out[k] === undefined) { out[k] = DEFAULTS[k]; warnings.push(`tianyi.${k}: missing → default`); }
@@ -61211,13 +61222,17 @@ J.MOODS.tynight = {
      [间奏 8] 交给上游 parser，本 fork 不碰。
    规则（由 project.tianyi 配置，见 90_config.js）：
      · 标记行被剥离（上游会把未识别的 [] 行当文字渲染，剥离是纯收益）；
-     · chorus 段按 chorusBangs 在行尾补成願めCut `!`（off/first/ends/all）；
+     · chorus 段按 chorusBangs 在行尾补成決めCut `!`（off/first/ends/all）；
+       ——注意：完整キメ演出需上游「統一感」(project.unify) 开启，off 时 `!` 仍为行级强调；
      · starWords 里的词包成 *词*（上游行级 emph 语法）；
-     · sections:'strong' 时桥段行在用户未指定时给 hold:'still'。
+     · sections:'strong' 时桥段行在用户未指定时给 hold:'still'；
+     · sectionMoods: { verse:'tyblue', chorus:'tyidol' } —— 分段情绪：从各模版
+       (fork/92) 的部件池为本段每行生成 layout/enter/exit 覆盖（段内 sticky、
+       段间切换；独立于 sections 开关工作）。
    安全性 / 不出问题契约：
      · 只有 project.tianyi 存在且 enabled !== false 才介入——无 opt-in ⇒ 与上游逐位一致；
      · 不写用户 project：全部变换发生在浅拷贝上（只替换 lyrics/overrides/tianyi 三个键）；
-     · 用户已写的每行 overrides 永远优先（只填缺口，不覆盖）；
+     · 用户已写的 overrides 逐键优先（只填缺口，不覆盖）；
      · 任何异常 → console.warn + 完整走原 J.plan（fail-safe）。
    ============================================================ */
 (() => {
@@ -61241,7 +61256,7 @@ const addBang = row => {
   let cut = row, note = '';
   const bar = row.indexOf('|');
   if (bar >= 0) { cut = row.slice(0, bar); note = row.slice(bar); }
-  if (/[!！]\s*$/.test(cut)) return null;                       // 已是願めCut → 无需重复
+  if (/[!！]\s*$/.test(cut)) return null;                       // 已是決めCut → 无需重复
   cut = cut.replace(/\s*$/, '');
   if (!cut) return null;                                        // 空白/纯注释行不补
   return cut + '!' + note;
@@ -61252,6 +61267,25 @@ const addStar = (row, word) => {
   const at = row.indexOf(word);
   if (at < 0) return null;
   return row.slice(0, at) + '*' + word + '*' + row.slice(at + word.length);
+};
+
+/* ---- sectionMoods：模版部件池 → 该段逐行覆盖（段内 sticky：小调色板轮换，气质一致） ----
+   只引用上游已注册且非 special 的部件键；模版里不存在的键自然为空。 */
+const MOOD_PARTS = ['layout', 'enter', 'exit'];                 // 本机制会写的键（逐键让位给用户）
+const moodPalette = (preset, rng) => {
+  const M = J.MOODS && J.MOODS[preset];
+  if (!M) return null;
+  const pool = (list, reg, n) => {
+    const uniq = [...new Set(list || [])].filter(k => reg[k] && !reg[k].special);
+    const out = [];
+    while (out.length < Math.min(n, uniq.length)) { const k = rng.pick(uniq); if (!out.includes(k)) out.push(k); }
+    return out;
+  };
+  return {
+    layout: pool(M.layout, J.LAYOUTS || {}, 3),
+    enter:  pool(M.enter,  J.ENTER   || {}, 2),
+    exit:   pool(M.exit,   J.EXIT    || {}, 2),
+  };
 };
 
 /* returns a new project (shallow copy) or the ORIGINAL when nothing changed */
@@ -61286,34 +61320,55 @@ function transform(project, cfg) {
       if (next != null) { replacements.set(ri, next); changed = true; break; }
     }
   }
-  /* chorus bangs + strong-mode hold */
-  const ovAdds = new Map();                                     // original row → {} ov additions
+  /* chorus bangs + strong-mode hold + sectionMoods（三者共用同一份段落内容表） */
+  const ovAdds = new Map();                                     // plan-line index → {} ov additions（跨机制合并）
+  const warns = [];
+  const spans = marks.map((m, i) => ({
+    type: m.type, s: m.ri, e: (i + 1 < marks.length ? marks[i + 1].ri : rows.length),
+  }));
+  for (const sp of spans) {
+    const content = [];
+    for (let ri = sp.s + 1; ri < sp.e; ri++) {
+      if (marks.some(mk => mk.ri === ri)) continue;
+      if (isInterlude(rows[ri])) { if (content.length) break; continue; }   // 间奏结束该段；段首间奏只跳过
+      if (!rows[ri].trim() || !keptCount(rows[ri])) continue;
+      content.push(ri);
+    }
+    sp.content = content;
+  }
   if (cfg.sections !== 'off') {
-    const spans = marks.map((m, i) => ({
-      type: m.type, s: m.ri, e: (i + 1 < marks.length ? marks[i + 1].ri : rows.length),
-    }));
     for (const sp of spans) {
-      const content = [];
-      for (let ri = sp.s + 1; ri < sp.e; ri++) {
-        if (marks.some(mk => mk.ri === ri)) continue;
-        if (isInterlude(rows[ri])) { if (content.length) break; continue; }   // 间奏结束该段；段首间奏只跳过
-        if (!rows[ri].trim() || !keptCount(rows[ri])) continue;
-        content.push(ri);
-      }
+      const content = sp.content;
       if (!content.length) continue;
       if (sp.type === 'chorus' && cfg.chorusBangs !== 'off') {
         const pick = cfg.chorusBangs === 'all' ? content : cfg.chorusBangs === 'first' ? [content[0]] : [content[content.length - 1]];
         for (const ri of pick) if (!replacements.has(ri)) { const r2 = addBang(rows[ri]); if (r2 != null) { replacements.set(ri, r2); changed = true; } }
       } else if (sp.type === 'bridge' && cfg.sections === 'strong') {
-        for (const ri of content) {
-          if (isInterlude(rows[ri])) continue;
-          const li = linesAt[ri], cur = (project.overrides || {})[li];
-          if (cur && cur.hold != null) continue;                // 用户已写 hold → 用户赢
-          ovAdds.set(li, { hold: 'still' });
-        }
+        for (const ri of content) ovAdds.set(linesAt[ri], Object.assign({}, ovAdds.get(linesAt[ri]) || {}, { hold: 'still' }));
       }
     }
   }
+  /* sectionMoods：独立于 sections 开关（标记行无条件剥离，不会残留到画面） */
+  for (const [type, preset] of Object.entries(cfg.sectionMoods || {})) {
+    if (!J.MOODS || !J.MOODS[preset]) { warns.push(`sectionMoods.${type}: unknown preset "${preset}"`); continue; }
+    for (const sp of spans.filter(s => s.type === type)) {
+      if (!sp.content.length) continue;
+      const rng = J.rng(J.h(project.seed | 0, 40501, sp.s));
+      const pal = moodPalette(preset, rng);
+      if (!pal || !pal.layout.length) continue;
+      sp.content.forEach((ri, i) => {
+        const n = Math.max(1, keptCount(rows[ri]));
+        for (let k = 0; k < n; k++) {
+          const add = { layout: pal.layout[i % pal.layout.length] };
+          if (pal.enter.length) add.enter = pal.enter[i % pal.enter.length];
+          if (pal.exit.length) add.exit = pal.exit[i % pal.exit.length];
+          const li = linesAt[ri] + k;
+          ovAdds.set(li, Object.assign({}, ovAdds.get(li) || {}, add));
+        }
+      });
+    }
+  }
+  if (warns.length) console.warn('JIZURA fork tianyi', warns.join(' / '));
   if (!changed && !ovAdds.size) return project;
 
   /* assemble new text: strip marker rows themselves (they were never kept rows) */
@@ -61322,13 +61377,20 @@ function transform(project, cfg) {
   const newText = out.join('\n');
   if (newText === lyrics && !ovAdds.size) return project;
 
-  /* ov merge: user keys win; never touch rows the user already set */
+  /* ov merge: 用户已写的键永远赢（逐键让位），未写的行/键由 fork 填充 */
   let ov = project.overrides;
   if (ovAdds.size) {
     ov = Object.assign({}, (project.overrides && typeof project.overrides === 'object') ? project.overrides : {});
     for (const [li, add] of ovAdds) {
-      const cur = (project.overrides || {})[li];
-      ov[li] = Object.assign({}, cur || {}, add);               // add fills gaps; user keys already checked above
+      const cur = ov[li];
+      const merged = Object.assign({}, add);
+      if (cur && typeof cur === 'object') {
+        for (const k of Object.keys(merged)) if (cur[k] != null) delete merged[k];   // user wins per key
+        if (!Object.keys(merged).length) continue;
+        ov[li] = Object.assign({}, cur, merged);
+      } else {
+        ov[li] = merged;
+      }
     }
   }
 

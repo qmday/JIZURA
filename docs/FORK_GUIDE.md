@@ -49,7 +49,11 @@ fork 文件全部在 12 个核心文件之后执行（编号 89 起，晚于上�
   "enabled": true,          // 总开关；false 时与上游逐位一致
   "sections": "auto",       // off | auto（剥离标记 + 決め） | strong（桥段 hold 收束）
   "chorusBangs": "ends",    // off | first | ends | all —— 决めCut（!）落在副歌哪几行
-  "starWords": ["路灯"]     // ≤8 个词：出现时自动包成 *词*（上游行级 emph 语法）
+  "starWords": ["路灯"],    // ≤8 个词：出现时自动包成 *词*（上游行级 emph 语法）
+  "sectionMoods": {         // 分段情绪：段类型 → 情绪模版键（fork/92）
+    "verse": "tyblue",      // 主歌 → 蓝调深情
+    "chorus": "tyidol"      // 副歌 → 偶像应援
+  }                         // 独立于 sections 开关；用户手写 overrides 逐键优先
 }
 ```
 
@@ -159,6 +163,10 @@ node tools/tyx_recommend.js merge ai.json 歌词.txt    # AI 建议 × 本地启
   キメ演出（強制 single cut、KIME 池 layout/enter 强制）在上游「統一感」开关
   （`project.unify`）开启时才生效，这是上游默认值如此，不是 fork 行为。
   依赖此文档做产品说明时记得带上这个前提。
+- **sectionMoods 的表达范围**：它写的是行级 overrides（layout/enter/exit），所以
+  段间"情绪差"来自版面/入出场/配色轮换；`fx`（glitch/motion 等区间）是上游全曲级
+  配置，fork 不逐行伪造。用户的行级 overrides **逐键**优先（同键不覆盖，异键共存）。
+  `tianyi.sectionMoods` 的值只认 fork/92 的 10 个 preset 键，未知值警告 + 跳过。
 - demo 构建（`demo/index.html`）是简体中文版整包，字体仍取自 Google Fonts
   （离线打开时回退系统字体，见上游说明）。
 

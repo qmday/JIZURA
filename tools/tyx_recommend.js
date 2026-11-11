@@ -150,6 +150,7 @@ function annotate(lines, sections, policy = 'ends') {
               moods:[{preset ∈ VALID_MOODS, basis}],
               bangs?:{policy ∈ off|first|ends|all} }        */
 const VALID_MOODS = Object.keys(X.MOOD_LEX);
+const VALID_TYPES_ARR = X.SECTION_TYPES;
 function checkAI(obj, n) {
   const errs = [];
   if (!obj || typeof obj !== 'object') return ['not an object'];
@@ -164,7 +165,40 @@ function checkAI(obj, n) {
     if (!m.basis) errs.push(`moods[${k}] 缺 basis`);
   }
   if (obj.bangs && !['off', 'first', 'ends', 'all'].includes(obj.bangs.policy)) errs.push('bangs.policy 无效');
+  if (obj.sectionMoods != null) {
+    if (!obj.sectionMoods || typeof obj.sectionMoods !== 'object' || Array.isArray(obj.sectionMoods)) errs.push('sectionMoods 必须是对象（sectionType → preset）');
+    else for (const [t, p] of Object.entries(obj.sectionMoods)) {
+      if (!VALID_TYPES_ARR.includes(t)) errs.push(`sectionMoods.${t} 不是段落类型`);
+      if (!VALID_MOODS.includes(p)) errs.push(`sectionMoods.${t} 的 preset 无效`);
+    }
+  }
   return errs;
+}
+
+/* ---------- per-section mood suggestion（分段情绪：同类型 span 的行合并打分） ---------- */
+function sectionMoodsSuggestion(lines, sections) {
+  const byType = new Map();
+  for (const s of sections) { if (!byType.has(s.type)) byType.set(s.type, []); byType.get(s.type).push(s); }
+  const globalTop = moodScores(lines, 3);
+  const map = {}, basis = {};
+  for (const [type, secs] of byType) {
+    const spanLines = [];
+    for (const s of secs) for (let i = s.lineStart; i <= s.lineEnd; i++) spanLines.push(lines[i]);
+    const scored = moodScores(spanLines, 3);
+    map[type] = scored[0] && scored[0].score > 0 ? scored[0].preset : (globalTop[0] ? globalTop[0].preset : 'tyblue');
+    basis[type] = scored[0] && scored[0].score > 0 ? scored[0].basis : '该段词表几乎未命中 → 回退全曲 Top1';
+  }
+  return { map, basis };
+}
+
+/* ---------- 可直接并入 JIZURA 工程文件（顶层 JSON）的 tianyi 配置片段 ---------- */
+function projectFragment(sectionMoods, policy) {
+  return { tianyi: {
+    schemaVersion: 1, enabled: true,
+    sections: 'auto', chorusBangs: policy,
+    starWords: [], sectionMoods,
+    _usage: '把 tianyi 对象并入你的 JIZURA 工程文件（项目另存的 JSON）顶层；sectionMoods 的段落建议见 report.sectionMoodsBasis，人工确认后再用。',
+  } };
 }
 
 /* ---------- subcommands ---------- */
@@ -177,16 +211,20 @@ function sub_auto(args) {
   const policy = process.env.TYX_BANGS || 'ends';
   const prefix = prefixIn || file.replace(/\.[^.]+$/, '');
   fs.writeFileSync(prefix + '.annotated.txt', annotate(lines, sections, policy));
+  const sectionMoods = sectionMoodsSuggestion(lines, sections);
   const report = {
     schemaVersion: 1, source: path.basename(file), bangs: { policy },
     sections: sections.map(s => Object.assign({}, s, { basis: heuristicBasis(s, hook) })),
-    moods, humanReview: true,
+    moods, sectionMoods: sectionMoods.map, sectionMoodsBasis: sectionMoods.basis,
+    projectFragment: projectFragment(sectionMoods.map, policy),
+    humanReview: true,
     note: '本地启发（离线保守）。人审 section 边界后把 annotated.txt 贴进 JIZURA；要更强的语义推荐走 merge 子命令。',
   };
   fs.writeFileSync(prefix + '.report.json', JSON.stringify(report, null, 2));
   console.log('sections:', sections.map(s => `${s.type}(${s.lineStart}..${s.lineEnd})`).join('  ') || '(no chorus detected)');
   console.log('moods  :', moods.map(m => `${m.preset}(${m.score})`).join('  '));
-  console.log('written:', prefix + '.annotated.txt + ' + prefix + '.report.json');
+  console.log('sectionMoods:', Object.entries(sectionMoods.map).map(([t, p]) => `${t}=${p}`).join(' ') || '(no sections)');
+  console.log('written:', prefix + '.annotated.txt + ' + prefix + '.report.json（含 projectFragment，可并入工程文件）');
 }
 
 function heuristicBasis(sec, hook) {
@@ -214,14 +252,19 @@ function sub_merge(args) {
   const policy = (ai.bangs && ai.bangs.policy) || 'ends';
   const prefix = prefixIn || lyricFile.replace(/\.[^.]+$/, '');
   fs.writeFileSync(prefix + '.annotated.txt', annotate(lines, sections, policy));
+  const sectionMoods = ai.sectionMoods || sectionMoodsSuggestion(lines, local.sections).map;
   const report = {
     schemaVersion: 1, source: path.basename(lyricFile), aiSource: path.basename(aiFile), bangs: { policy },
     sections, moods: ai.moods || [], localSections: local.sections,
+    sectionMoods, sectionMoodsSource: ai.sectionMoods ? 'ai' : 'local-heuristic',
+    projectFragment: projectFragment(sectionMoods, policy),
     humanReview: true,
     note: 'AI 语义建议为主，本地重复性启发交叉验证。crossCheck=humanReview 的段落请人工确认后再贴进 JIZURA。',
   };
   fs.writeFileSync(prefix + '.report.json', JSON.stringify(report, null, 2));
-  console.log(`merged：sections ${sections.length} 个，其中 ${flagged} 个待人工复核。written: ${prefix}.annotated.txt + report.json`);
+  console.log(`merged：sections ${sections.length} 个，其中 ${flagged} 个待人工复核。sectionMoods: ` +
+    Object.entries(sectionMoods).map(([t, p]) => `${t}=${p}`).join(' ') + ` (${report.sectionMoodsSource})`);
+  console.log(`written: ${prefix}.annotated.txt + report.json（含 projectFragment，可并入工程文件）`);
 }
 
 const [cmd, ...rest] = process.argv.slice(2);

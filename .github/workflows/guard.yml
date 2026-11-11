@@ -49,6 +49,8 @@ jobs:
         run: |
           node tools/tyx_recommend.js auto fixtures/demo_lyrics.txt /tmp/demo
           test -f /tmp/demo.annotated.txt
+          grep -q '"sectionMoods"' /tmp/demo.report.json
+          grep -q '"projectFragment"' /tmp/demo.report.json
           node tools/tyx_recommend.js merge fixtures/demo.report.json fixtures/demo_lyrics.txt /tmp/demo2
           test -f /tmp/demo2.annotated.txt
 

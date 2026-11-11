@@ -53,6 +53,31 @@
       "basis": "“呼吸”@呼吸接住呼吸 | “湖面”@湖面只剩回声了"
     }
   ],
+  "sectionMoods": {
+    "verse": "tyblue",
+    "chorus": "tyblue",
+    "outro": "tyspring"
+  },
+  "sectionMoodsBasis": {
+    "verse": "“湖”@灯影折进湖水的褶皱 | “水”@灯影折进湖水的褶皱",
+    "chorus": "“蓝”@天依在湖蓝里醒来 | “天依”@天依在湖蓝里醒来 | “湖”@天依在湖蓝里醒来",
+    "outro": "“明天”@回声里是明天"
+  },
+  "projectFragment": {
+    "tianyi": {
+      "schemaVersion": 1,
+      "enabled": true,
+      "sections": "auto",
+      "chorusBangs": "ends",
+      "starWords": [],
+      "sectionMoods": {
+        "verse": "tyblue",
+        "chorus": "tyblue",
+        "outro": "tyspring"
+      },
+      "_usage": "把 tianyi 对象并入你的 JIZURA 工程文件（项目另存的 JSON）顶层；sectionMoods 的段落建议见 report.sectionMoodsBasis，人工确认后再用。"
+    }
+  },
   "humanReview": true,
   "note": "本地启发（离线保守）。人审 section 边界后把 annotated.txt 贴进 JIZURA；要更强的语义推荐走 merge 子命令。"
 }

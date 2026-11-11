@@ -20,6 +20,8 @@ const DEFAULTS = Object.freeze({
   chorusBangs: 'ends',
   /* substring list wrapped into *词* for emphasis (max 8 words × 12 chars) */
   starWords: [],
+  /* section type → mood preset key (fork/92): per-section part styling */
+  sectionMoods: null,
 });
 
 const SCHEMA = {
@@ -27,6 +29,7 @@ const SCHEMA = {
   sections:     { type: 'enum',  values: ['off', 'auto', 'strong'], affect: 'planner' },
   chorusBangs:  { type: 'enum',  values: ['off', 'first', 'ends', 'all'], affect: 'planner' },
   starWords:    { type: 'words', max: 8, maxLen: 12, affect: 'planner' },
+  sectionMoods: { type: 'map',   maxKeys: 6, affect: 'planner' },   // value-preset validated in 93 (needs J.MOODS loaded)
 };
 
 /* validation: unknown keys are PRESERVED (kept as-is), illegal values fall back
@@ -44,6 +47,14 @@ function validate(cfgIn) {
     } else if (r.type === 'words') {
       if (Array.isArray(v) && v.every(x => typeof x === 'string' && x.length > 0 && x.length <= r.maxLen)) out[k] = v.slice(0, r.max);
       else warnings.push(`tianyi.${k}: expected up to ${r.max} strings ≤ ${r.maxLen} chars`);
+    } else if (r.type === 'map') {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        const keys = Object.keys(v);
+        const clean = {};
+        for (const kk of keys.slice(0, r.maxKeys)) if (typeof v[kk] === 'string' && v[kk]) clean[kk] = v[kk];
+        if (keys.length > r.maxKeys) warnings.push(`tianyi.${k}: >${r.maxKeys} entries, extra ignored`);
+        if (Object.keys(clean).length) out[k] = clean;   // value checks (preset keys) happen in 93, where J.MOODS exists
+      } else if (v !== null) warnings.push(`tianyi.${k}: expected an object (sectionType → preset)`);
     }
   }
   for (const k of Object.keys(SCHEMA)) if (out[k] === undefined) { out[k] = DEFAULTS[k]; warnings.push(`tianyi.${k}: missing → default`); }
