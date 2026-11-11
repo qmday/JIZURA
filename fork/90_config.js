@@ -25,6 +25,9 @@ const DEFAULTS = Object.freeze({
   /* 拆字 accents: 'off' | 'some' | 'lots' — inject piece-based (glyph-decomposition)
      enter/exit overrides at seeded probability (pools + rates in fork/94) */
   glyphFx: 'off',
+  /* 投稿格式预设: 'auto' (不动) | 'douyin' (9:16·30fps) | 'bilibili' (16:9·30fps)
+     —— 只覆盖仍是上游默认值的 aspect/res/fps；用户显式改过的值永远不动 */
+  format: 'auto',
 });
 
 const SCHEMA = {
@@ -34,6 +37,7 @@ const SCHEMA = {
   starWords:    { type: 'words', max: 8, maxLen: 12, affect: 'planner' },
   sectionMoods: { type: 'map',   maxKeys: 6, affect: 'planner' },   // value-preset validated in 93 (needs J.MOODS loaded)
   glyphFx:      { type: 'enum',  values: ['off', 'some', 'lots'], affect: 'planner' },
+  format:       { type: 'enum',  values: ['auto', 'douyin', 'bilibili'], affect: 'planner' },
 };
 
 /* validation: unknown keys are PRESERVED (kept as-is), illegal values fall back

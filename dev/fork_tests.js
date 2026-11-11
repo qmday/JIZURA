@@ -22,6 +22,7 @@ fork('90_config.js');
 fork('92_moods_tianyi.js');
 fork('93_sections.js');
 fork('94_fonts_tianyi.js');
+fork('95_presets_tianyi.js');
 
 /* plan-line indices (markers stripped, blank = 0 lines):
    0湖水 1你数 2站台 3蓝色 4路灯(桥) 5站台 6蓝色 7回声 */
@@ -67,6 +68,16 @@ checks.push(['glyphFx overrides sectionMoods enter/exit, keeps layout', (() => {
 checks.push(['glyphFx: user keys win per-key', (() => { const p2 = P({ glyphFx: 'lots' }, { overrides: { 0: { enter: 'blur', exit: 'blur' } } }).project.overrides; return p2[0].enter === 'blur' && p2[0].exit === 'blur'; })()]);
 checks.push(['glyphFx skips interlude rows', (() => { const l2 = ['[主歌]','湖水','[间奏 4]','','[副歌]','蓝色在靠岸'].join('\n'); const p2 = J.plan({ lyrics: l2, seed: 7, tianyi: { glyphFx: 'lots' } }).project; return Object.values(p2.overrides || {}).every(o => gPool.includes(o.enter) || gPool.includes(o.exit)); })()]);
 checks.push(['glyphFx invalid value → warn + default off', (() => { const ws = []; const w0 = console.warn; console.warn = (...a) => ws.push(a.join(' ')); const p2 = P({ glyphFx: 'mega' }).project; console.warn = w0; return ws.some(w => w.includes('glyphFx')) && cnt(p2) === 0; })()]);
+
+/* ---- format (95 + 93) ---- */
+const FMT = J.TY.FORMATS;
+checks.push(['formats registered', FMT && FMT.douyin && FMT.douyin.aspect === '9:16' && FMT.bilibili.aspect === '16:9']);
+checks.push(['format:auto → untouched', (() => { const p2 = P({ format: 'auto' }, { aspect: '16:9', fps: 24, res: 1080 }).project; return p2.aspect === '16:9' && p2.fps === 24; })()]);
+checks.push(['format:douyin flips defaults (16:9→9:16, 24→30fps)', (() => { const p2 = P({ format: 'douyin' }).project; return p2.aspect === '9:16' && p2.fps === 30 && p2.res === 1080; })()]);
+checks.push(['format respects user-explicit values', (() => { const p2 = P({ format: 'douyin' }, { aspect: '1:1', fps: 60, res: 1440 }).project; return p2.aspect === '1:1' && p2.fps === 60 && p2.res === 1440; })()]);
+checks.push(['format keeps user-chosen 9:16 aspect, upgrades fps', (() => { const p2 = P({ format: 'douyin' }, { aspect: '9:16' }).project; return p2.aspect === '9:16' && p2.fps === 30; })()]);
+checks.push(['format invalid → warn + default auto', (() => { const ws = []; const w0 = console.warn; console.warn = (...a) => ws.push(a.join(' ')); const p2 = P({ format: 'tiktok' }, { aspect: '16:9', fps: 24 }).project; console.warn = w0; return ws.some(w => w.includes('format')) && p2.aspect === '16:9' && p2.fps === 24; })()]);
+checks.push(['format:douyin + lyrics only → plan W/H = 1080/1920 shape', (() => { const p2 = P({ format: 'douyin' }).project; const d = { '9:16': [1080, 1920], '16:9': [1920, 1080] }; const wh = d[p2.aspect]; return wh && wh[0] === 1080 && wh[1] === 1920; })()]);
 
 let f = 0; for (const [n, ok] of checks) { console.log(ok ? '✔' : '✘', n); if (!ok) f++; }
 console.log(f ? 'FAILS=' + f : 'ALL_GREEN (' + checks.length + ')');

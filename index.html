@@ -60507,6 +60507,9 @@ const DEFAULTS = Object.freeze({
   /* 拆字 accents: 'off' | 'some' | 'lots' — inject piece-based (glyph-decomposition)
      enter/exit overrides at seeded probability (pools + rates in fork/94) */
   glyphFx: 'off',
+  /* 投稿格式预设: 'auto' (不动) | 'douyin' (9:16·30fps) | 'bilibili' (16:9·30fps)
+     —— 只覆盖仍是上游默认值的 aspect/res/fps；用户显式改过的值永远不动 */
+  format: 'auto',
 });
 
 const SCHEMA = {
@@ -60516,6 +60519,7 @@ const SCHEMA = {
   starWords:    { type: 'words', max: 8, maxLen: 12, affect: 'planner' },
   sectionMoods: { type: 'map',   maxKeys: 6, affect: 'planner' },   // value-preset validated in 93 (needs J.MOODS loaded)
   glyphFx:      { type: 'enum',  values: ['off', 'some', 'lots'], affect: 'planner' },
+  format:       { type: 'enum',  values: ['auto', 'douyin', 'bilibili'], affect: 'planner' },
 };
 
 /* validation: unknown keys are PRESERVED (kept as-is), illegal values fall back
@@ -60712,7 +60716,10 @@ J.MOODS.tynight = {
        段间切换；独立于 sections 开关工作）；
      · glyphFx: 'off'|'some'|'lots' —— 拆字点缀：按 seed 概率把行的 enter/exit
        换成上游部件级演出（笔画分解飞行/碎裂，池见 fork/94）；开启时接管
-       sectionMoods 的 enter/exit（版面/配色仍归段落情绪），用户手写仍最优先。
+       sectionMoods 的 enter/exit（版面/配色仍归段落情绪），用户手写仍最优先；
+     · format: 'auto'|'douyin'|'bilibili' —— 投稿格式预设（fork/95）：把仍是
+       上游默认值的 aspect/res/fps 换成平台规格；用户显式设置的值永远不动。
+       （仅对带歌词的工程生效——投稿场景必有歌词。）
    安全性 / 不出问题契约：
      · 只有 project.tianyi 存在且 enabled !== false 才介入——无 opt-in ⇒ 与上游逐位一致；
      · 不写用户 project：全部变换发生在浅拷贝上（只替换 lyrics/overrides/tianyi 三个键）；
@@ -60793,6 +60800,16 @@ function glyphFxPass(ovAdds, cfg, seed, linesAt, keptRow, rows, warns) {
       if (xp.length && rng.chance(probs.exit)) add.exit = rng.pick(xp);
       if (add.enter || add.exit) ovAdds.set(li, Object.assign({}, ovAdds.get(li) || {}, add));
     }
+  }
+}
+
+/* ---- format：投稿格式预设（只覆盖仍是上游默认值的 aspect/res/fps；用户显式值不动） ---- */
+function formatPass(cfg, project, patch) {
+  const F = J.TY && J.TY.FORMATS && J.TY.FORMATS[cfg.format];
+  if (!F) return;                                       // 'auto' 或未知（enum 校验已挡）
+  for (const k of ['aspect', 'res', 'fps']) {
+    const d = J.TY.FORMATS._defaults[k];
+    if (project[k] === undefined || project[k] === d) patch[k] = F[k];   // 默认值 → 预设；用户显式值 → 不动
   }
 }
 
@@ -60878,13 +60895,17 @@ function transform(project, cfg) {
   }
   glyphFxPass(ovAdds, cfg, project.seed, linesAt, keptRow, rows, warns);
   if (warns.length) console.warn('JIZURA fork tianyi', warns.join(' / '));
-  if (!changed && !ovAdds.size) return project;
+
+  /* format（投稿预设）: 独立判断"是否有事可做" */
+  const fmtPatch = {};
+  formatPass(cfg, project, fmtPatch);
+  if (!changed && !ovAdds.size && !Object.keys(fmtPatch).length) return project;
 
   /* assemble new text: strip marker rows themselves (they were never kept rows) */
   const out = [];
   rows.forEach((row, ri) => { if (!marks.some(mk => mk.ri === ri)) out.push(replacements.get(ri) ?? row); });
   const newText = out.join('\n');
-  if (newText === lyrics && !ovAdds.size) return project;
+  if (newText === lyrics && !ovAdds.size && !Object.keys(fmtPatch).length) return project;
 
   /* ov merge: 用户已写的键永远赢（逐键让位），未写的行/键由 fork 填充 */
   let ov = project.overrides;
@@ -60903,7 +60924,7 @@ function transform(project, cfg) {
     }
   }
 
-  return Object.assign({}, project, {
+  return Object.assign({}, project, fmtPatch, {
     lyrics: newText,
     overrides: ov,
     tianyi: Object.assign({}, project.tianyi, J.TY.migrate(project.tianyi)),   // config provenance (harmless, unknown keys kept)
@@ -60987,6 +61008,42 @@ J.TY.GLYPHFX = {
     some: { enter: 0.3, exit: 0.22 },
     lots: { enter: 0.6, exit: 0.5 },
   },
+};
+})();
+
+/* ============================================================
+   天依 fork — 95: 投稿格式预设（纯数据 + 93 的一个小变换）
+   (contract: FORK_GUIDE.md — no upstream file is modified)
+
+   上游 aspect 已原生支持 9:16/3:4/4:5 等（J.designSize），导出 UI 也有
+   竖屏选项——本文件不做新渲染，只提供「一键拿到各平台投稿规格」的预设，
+   93 钩子把预设套到工程文件未被用户改过的默认值上。
+
+   规格说明（2026-11 常识值，平台规则以官方为准）：
+     · 抖音/快手竖屏：1080×1920（9:16）· 30fps · H.264 → aspect '9:16'、res 1080
+       （res = 短边设计长边比基准：9:16 时 1080 → 整 1080×1920）
+     · B站/通用横屏：1920×1080（16:9）· 30fps → aspect '16:9'、res 1080
+   fps 说明：上游默认 24fps；投稿预设取 30fps（竖屏平台惯例）。上游
+   fx.koma（作画帧率）独立于输出 fps，不受影响。
+   ============================================================ */
+(() => {
+'use strict';
+
+if (!J.TY) J.TY = {};                 // 90 未载入时的最小兜底
+
+J.TY.FORMATS = {
+  douyin: {
+    label: '抖音/快手竖屏',
+    aspect: '9:16', res: 1080, fps: 30,
+    note: '1080×1920 · 30fps · 导出 MP4(H.264) 直接投稿；安全区：顶部≈130px、底部≈190px 放字幕以外的信息',
+  },
+  bilibili: {
+    label: 'B站/通用横屏',
+    aspect: '16:9', res: 1080, fps: 30,
+    note: '1920×1080 · 30fps',
+  },
+  /* 上游 defaultProject 的原值 —— 93 只覆盖「仍是默认值」的字段（探测用，非预设） */
+  _defaults: { aspect: '16:9', res: 1080, fps: 24 },
 };
 })();
 

@@ -61,8 +61,20 @@
     if (tEnter) { try { r.frame(ctx, planG, tEnter.start + 0.12, { scale: sc }); draws++; } catch (e) { problems.push('RENDER ' + (e && e.message)); } }
     assert('rendered ' + draws + ' frames without exception', draws >= 3 && problems.filter(p => p.startsWith('RENDER')).length === 0);
 
-    /* C) off = original bit-exact: glyphFx off vs no tianyi → same plan (ignoring tianyi key) */
-    const pOff = J.plan(mk({ glyphFx: 'off' }), AUDIO);
+    /* C2) format:douyin → 竖屏 plan + 渲染（手机尺寸适配验收） */
+    const pV = mk({ glyphFx: 'lots', sectionMoods: { chorus: 'tyidol' }, format: 'douyin' });
+    const planV = J.plan(pV, AUDIO);
+    assert('format douyin → plan W/H = 1080×1920', planV.W === 1080 && planV.H === 1920);
+    try {
+      const rV = new J.Renderer();
+      const cvV = document.createElement('canvas'); cvV.width = 1080; cvV.height = 1920;
+      const cV = planV.cuts.find(c => (c.text || '').includes('蓝色')) || planV.cuts[0];
+      rV.frame(cvV.getContext('2d'), planV, cV.start + Math.min(1.2, (cV.end - cV.start) * 0.5), { scale: 1 });
+      planV.__cv = cvV;
+      assert('9:16 vertical render clean', true);
+    } catch (e) { problems.push('RENDER-V ' + (e && e.message)); assert('9:16 vertical render clean', false); }
+
+    /* C) off = original bit-exact: glyphFx off vs no tianyi → same plan (ignoring tianyi key) */    const pOff = J.plan(mk({ glyphFx: 'off' }), AUDIO);
     const pNone = J.plan(Object.assign(J.defaultProject(), {
       lyrics: LYRICS, style: 'tianyi', aspect: '16:9', seed: 11, unify: true,
       fonts: {}, timing: { bpm: 0, offset: 0, snap: false, tail: 0.5, lineScale: 1,
@@ -86,6 +98,14 @@
     };
     cell(10, 10, 'ty_mashan 毛笔楷书 (plan.fonts.display)', planF, (() => { const c = planF.cuts.find(c => (c.text || '').includes('蓝色')) || planF.cuts[0]; return c.start + Math.min(1.2, (c.end - c.start) * 0.5); })());
     cell(630, 10, 'glyphFx:lots 爆散/崩落 (exit 窗口)', planG, (() => { const c = planG.cuts.find(c => (c.text || '').includes('湖水')); return c.start + (c.end - c.start) * 0.96; })());
+    if (planV.__cv) {   // 竖屏 9:16 cell
+      g.save(); g.translate(10, 370);
+      g.fillStyle = '#000'; g.fillRect(0, 0, 600, 340);
+      g.drawImage(planV.__cv, 0, 0, 191, 340);
+      g.drawImage(planV.__cv, 0, 0, 191, 340, 215, 0, 191, 340);
+      g.fillStyle = '#9cf'; g.font = '14px monospace'; g.fillText('format:douyin 9:16 1080×1920@30', 8, 20);
+      g.restore();
+    }
   } catch (e) {
     problems.push('FATAL ' + (e && e.stack || e));
   }

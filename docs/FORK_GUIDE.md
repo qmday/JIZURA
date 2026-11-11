@@ -29,8 +29,10 @@ fork 文件全部在 12 个核心文件之后执行（编号 89 起，晚于上�
 | `fork/90_config.js` | `project.tianyi` 配置 schema / 校验 / 迁移（`J.TY`） | 无 |
 | `fork/91_styles_tianyi.js` | 风格包 `tianyi`（天依蓝调）/ `tianyiNight`（天依夜航），纯数据 | 无 |
 | `fork/92_moods_tianyi.js` | 10 套情绪模版（`J.MOODS.ty*`），纯数据，只引用已存在的部件键 | `91`（样式名） |
-| `fork/93_sections.js` | `J.plan` 外包裹钩子：结构记法 → `!` / `*词*` / 桥段 hold / 分段情绪 / 拆字点缀，fail-safe | `89` + `90`（+`94` 的池） |
+| `fork/93_sections.js` | `J.plan` 外包裹钩子：结构记法 → `!` / `*词*` / 桥段 hold / 分段情绪 / 拆字点缀 / 投稿格式，fail-safe | `89` + `90`（+`94`/`95` 的池） |
 | `fork/94_fonts_tianyi.js` | 中文字体 `ty_*`（纯数据进 `J.FONTS`）+ 拆字部件池 `J.TY.GLYPHFX` | `02_fonts`（目录对象） |
+| `fork/95_presets_tianyi.js` | 投稿格式预设 `J.TY.FORMATS`（douyin 竖屏 / bilibili 横屏），纯数据 | 无 |
+| `tools/ty_mcp.js` | MCP 服务器（用户侧、离线）：4 工具（分析/校验/生成工程/能力清单） | `tyx_recommend.js` 模块模式 |
 
 约定：新增某个类型的 fork 文件时，编号前缀保持递增；91+ 的纯数据文件不要引入
 控制流；一切共享常量先进 89，禁止在 90+ 里重复字面量。
@@ -57,6 +59,9 @@ fork 文件全部在 12 个核心文件之后执行（编号 89 起，晚于上�
   },                        // 独立于 sections 开关；用户手写 overrides 逐键优先
   "glyphFx": "off"          // 拆字点缀: off | some | lots —— 按概率把行的
                             // enter/exit 换成笔画分解类演出（池见 fork/94）
+  "format": "auto"          // 投稿格式: auto | douyin（9:16·1080×1920·30fps）
+                            // | bilibili（16:9·30fps）—— 只覆盖仍是上游默认
+                            // 值的 aspect/res/fps，用户显式设置永远不动（95）
 }
 ```
 
@@ -163,6 +168,26 @@ node tools/tyx_recommend.js merge ai.json 歌词.txt    # AI 建议 × 本地启
 
 （工具不调用任何接口；把歌词拿去你自己的 AI 工具属于你的行为。）
 
+### 7.3 MCP 服务器（`tools/ty_mcp.js`，用户侧、零依赖、离线）
+
+让 Claude Desktop / Cursor 等 MCP 客户端直接调上面同一套引擎（stdio 本地进程，
+不联网、不进 renderer）：
+
+```jsonc
+// claude_desktop_config.json 的 mcpServers 里加：
+"jizura-tianyi": { "command": "node", "args": ["/绝对路径/tools/ty_mcp.js"] }
+```
+
+| 工具 | 作用 |
+|---|---|
+| `ty_analyze_lyrics` | 离线分析歌词 → 段落/情绪/決め策略 + `projectFragment`（可直接并入工程文件） |
+| `ty_validate_config` | 校验 tianyi 配置（schema + 非法值回退警告） |
+| `ty_build_project` | 歌词 + tianyi + 投稿格式 → **完整可加载的工程文件 JSON** |
+| `ty_list_capabilities` | 风格/情绪/字体/拆字池/格式清单 |
+
+冒烟：`node dev/mcp_smoke.js`（guard.yml 有此步）；协议为换行分隔 JSON-RPC 2.0，
+无 SDK 依赖。方针合规：AI 只产生"建议 + 人工确认"，与 §7.1 同一闭环。
+
 ## 8. 已知边界（写下来比忘了好）
 
 - `93` 的段→行号映射复刻了上游 parser 的 1:n 规则（LRC 多时间戳=多行、空行/无文本
@@ -191,6 +216,14 @@ node tools/tyx_recommend.js merge ai.json 歌词.txt    # AI 建议 × 本地启
   歌词建议主用 ty_wenkai/ty_songti/ty_heiti，其余按需。`gf` 规格改动需实测
   css2 API（attachFamily 失败会静默回退系统字体，不报错——验收时用
   `document.fonts.check` 确认）。
+- **format 的生效前提**：只对带歌词的工程生效（93 钩子在歌词缺失时整体跳过）；
+  只覆盖 aspect/res/fps 中"仍是上游默认值"的字段——用户显式改过的值（如
+  4:5、60fps）永远不动。预设数值（1080×1920·30fps 等）是 2026-11 的常识值，
+  平台投稿规格以官方文档为准；`_defaults` 探测表若上游改默认值需同步。
+- **竖屏注意事项**：上游 9:16 布局通用（部件都按 env.W/H 取尺寸），但部分
+  横屏向部件（marquee 长条、credits 滚屏）在竖屏里观感偏挤——投稿前建议
+  用「書き出す範囲」单行预览过目；sectionMoods 的 tyidol/tyblue 池均为
+  竖屏友好部件。
 - demo 构建（`demo/index.html`）是简体中文版整包，字体仍取自 Google Fonts
   （离线打开时回退系统字体，见上游说明）。
 

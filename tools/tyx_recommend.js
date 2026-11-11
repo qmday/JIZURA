@@ -267,7 +267,37 @@ function sub_merge(args) {
   console.log(`written: ${prefix}.annotated.txt + report.json（含 projectFragment，可并入工程文件）`);
 }
 
-const [cmd, ...rest] = process.argv.slice(2);
-if (cmd === 'auto') sub_auto(rest);
-else if (cmd === 'merge') sub_merge(rest);
-else fail('usage: tyx_recommend <auto|merge> …（详见 docs/FORK_GUIDE.md §3）');
+/* ---- module surface (MCP / other tools require these; CLI still runs standalone) ---- */
+if (require.main === module) {
+  const [cmd, ...rest] = process.argv.slice(2);
+  if (cmd === 'auto') sub_auto(rest);
+  else if (cmd === 'merge') sub_merge(rest);
+  else fail('usage: tyx_recommend <auto|merge> …（详见 docs/FORK_GUIDE.md §3）');
+} else {
+  /* in-process API: same engines the CLI uses, no files written */
+  module.exports = {
+    SECTION_TYPES: X.SECTION_TYPES,
+    MOOD_LEX: X.MOOD_LEX,
+    VALID_MOODS, VALID_TYPES_ARR,
+    analyzeLyrics: (text) => {                      // lyrics string → full offline recommendation
+      const rows = String(text || '').replace(/\r/g, '').split('\n').map(l => l.replace(/\r$/, ''));
+      const { sections, hook } = proposeSections(rows);
+      const moods = moodScores(rows);
+      const policy = 'ends';
+      const sm = sectionMoodsSuggestion(rows, sections);
+      return {
+        sections: sections.map(s => Object.assign({}, s, { basis: heuristicBasis(s, hook) })),
+        moods, bangs: { policy }, sectionMoods: sm.map, sectionMoodsBasis: sm.basis,
+        projectFragment: projectFragment(sm.map, policy), humanReview: true,
+      };
+    },
+    mergeAI: checkAI,
+    projectFragment,
+    validateTianyi: (tianyiCfg) => {                // uses fork/90 in-memory
+      const J90 = {};
+      new Function('J', require('fs').readFileSync(path.join(__dirname, '..', 'fork', '90_config.js'), 'utf8'))(J90);
+      const { cfg, warnings } = J90.TY.validate(J90.TY.migrate(tianyiCfg || {}));
+      return { cfg, warnings };
+    },
+  };
+}

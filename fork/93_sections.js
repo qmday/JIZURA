@@ -15,7 +15,10 @@
        段间切换；独立于 sections 开关工作）；
      · glyphFx: 'off'|'some'|'lots' —— 拆字点缀：按 seed 概率把行的 enter/exit
        换成上游部件级演出（笔画分解飞行/碎裂，池见 fork/94）；开启时接管
-       sectionMoods 的 enter/exit（版面/配色仍归段落情绪），用户手写仍最优先。
+       sectionMoods 的 enter/exit（版面/配色仍归段落情绪），用户手写仍最优先；
+     · format: 'auto'|'douyin'|'bilibili' —— 投稿格式预设（fork/95）：把仍是
+       上游默认值的 aspect/res/fps 换成平台规格；用户显式设置的值永远不动。
+       （仅对带歌词的工程生效——投稿场景必有歌词。）
    安全性 / 不出问题契约：
      · 只有 project.tianyi 存在且 enabled !== false 才介入——无 opt-in ⇒ 与上游逐位一致；
      · 不写用户 project：全部变换发生在浅拷贝上（只替换 lyrics/overrides/tianyi 三个键）；
@@ -96,6 +99,16 @@ function glyphFxPass(ovAdds, cfg, seed, linesAt, keptRow, rows, warns) {
       if (xp.length && rng.chance(probs.exit)) add.exit = rng.pick(xp);
       if (add.enter || add.exit) ovAdds.set(li, Object.assign({}, ovAdds.get(li) || {}, add));
     }
+  }
+}
+
+/* ---- format：投稿格式预设（只覆盖仍是上游默认值的 aspect/res/fps；用户显式值不动） ---- */
+function formatPass(cfg, project, patch) {
+  const F = J.TY && J.TY.FORMATS && J.TY.FORMATS[cfg.format];
+  if (!F) return;                                       // 'auto' 或未知（enum 校验已挡）
+  for (const k of ['aspect', 'res', 'fps']) {
+    const d = J.TY.FORMATS._defaults[k];
+    if (project[k] === undefined || project[k] === d) patch[k] = F[k];   // 默认值 → 预设；用户显式值 → 不动
   }
 }
 
@@ -181,13 +194,17 @@ function transform(project, cfg) {
   }
   glyphFxPass(ovAdds, cfg, project.seed, linesAt, keptRow, rows, warns);
   if (warns.length) console.warn('JIZURA fork tianyi', warns.join(' / '));
-  if (!changed && !ovAdds.size) return project;
+
+  /* format（投稿预设）: 独立判断"是否有事可做" */
+  const fmtPatch = {};
+  formatPass(cfg, project, fmtPatch);
+  if (!changed && !ovAdds.size && !Object.keys(fmtPatch).length) return project;
 
   /* assemble new text: strip marker rows themselves (they were never kept rows) */
   const out = [];
   rows.forEach((row, ri) => { if (!marks.some(mk => mk.ri === ri)) out.push(replacements.get(ri) ?? row); });
   const newText = out.join('\n');
-  if (newText === lyrics && !ovAdds.size) return project;
+  if (newText === lyrics && !ovAdds.size && !Object.keys(fmtPatch).length) return project;
 
   /* ov merge: 用户已写的键永远赢（逐键让位），未写的行/键由 fork 填充 */
   let ov = project.overrides;
@@ -206,7 +223,7 @@ function transform(project, cfg) {
     }
   }
 
-  return Object.assign({}, project, {
+  return Object.assign({}, project, fmtPatch, {
     lyrics: newText,
     overrides: ov,
     tianyi: Object.assign({}, project.tianyi, J.TY.migrate(project.tianyi)),   // config provenance (harmless, unknown keys kept)

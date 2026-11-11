@@ -22,6 +22,7 @@
 | — | （初版） | 结构记法钩子（标记剥离 / 決めCut / starWords / 桥段 hold） | 联画表真机验收 |
 | — | `f1035c9` | **分段情绪 sectionMoods**：段类型→模版部件池→逐行 layout/enter/exit 覆盖（段内 sticky、用户逐键优先）；推荐器产出 `sectionMoods/Basis/projectFragment`；AI JSON 可直接携带（带校验） | mini-host 14 项 + guard 断言 |
 | — | `bb958dc` | **中文字体 ×10（ty_\*）** + **拆字点缀 glyphFx**（off/some/lots，笔画分解部件池调度） | mini-host 27 项 + 真机 5 项（字体真加载、拆字落 cut、渲染零异常、off=original 逐位一致） |
+| — | 本次 | **投稿格式预设 format**（douyin 9:16·30fps / bilibili）+ **MCP 服务器**（4 工具，零依赖离线） | mini-host 34 项 + MCP 冒烟 9 项 + 真机 7 项（含 9:16 渲染与 1080×1920 断言） |
 
 > commit 日期以 `git log` 为准；本文按交付顺序记录。
 
@@ -36,13 +37,18 @@
 | 分段情绪 | `fork/93_sections.js`（池在 92） | `"sectionMoods":{"verse":"tyblue"}` |
 | 中文字体 ×10 | `fork/94_fonts_tianyi.js` | `"fonts":{"display":"ty_mashan"}` 或风格包抽取 |
 | 拆字点缀 | `fork/94`（池）+ `fork/93`（调度） | `"glyphFx":"some"` |
+| 投稿格式预设 | `fork/95_presets_tianyi.js` + `fork/93` | `"format":"douyin"` |
+| MCP 服务器 | `tools/ty_mcp.js`（冒烟 `dev/mcp_smoke.js`） | Claude Desktop / Cursor 配置 |
 | AI/离线推荐 | `tools/tyx_recommend.js` | `auto` / `merge` 子命令 |
 
 ## 命令速查（开发维护）
 
 ```bash
-# fork 单测（27 项，无需浏览器；guard.yml 同款）
+# fork 单测（34 项，无需浏览器；guard.yml 同款）
 node dev/fork_tests.js
+
+# MCP 服务器冒烟（stdio 协议 + 4 工具全通；guard.yml 同款）
+node dev/mcp_smoke.js
 
 # 完整构建（7 语言，fork 自动并入）
 python3 tools/fork_build.py            # = build.py + fork 注入（不改核心文件）
@@ -82,6 +88,8 @@ git fetch upstream && git merge upstream/main   # 冲突只可能落在 build.py
 - [ ] **M5** 本地素材（贴纸）decor 支持（与字体上传同失败路径）
 - [ ] golden 回归脚本化（`dev/smoke_all.py` + playwright 进 CI，guard.yml 已留注释位）
 - [ ] 用户真实歌词过一遍 `tyx_recommend auto`，校准情绪词表（89 纯数据，加词安全）
+- [ ] 竖屏专项联画表（9:16 全部件过目，出竖屏观感分级清单；当前仅抽查主路径）
+- [ ] MCP：`ty_build_project` 支持音频时间轴提示（BPM/offset 建议）
 
 ## 维护守则（3 条，违反即回退）
 

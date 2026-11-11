@@ -50,6 +50,9 @@ jobs:
       - name: fork 单测（mini-host，含 sectionMoods/glyphFx/字体注册）
         run: node dev/fork_tests.js
 
+      - name: MCP 服务器冒烟（stdio 协议 + 4 工具全通）
+        run: node dev/mcp_smoke.js
+
       - name: 推荐器 CLI 冒烟（离线 fixture）
         run: |
           node tools/tyx_recommend.js auto fixtures/demo_lyrics.txt /tmp/demo
