@@ -1,4 +1,4 @@
-# 天依 fork — JIZURA 洛天依二开版（v0.1.0）
+# 天依 fork — JIZURA 洛天依二开版（v0.2.0）
 
 这是 [852wa/JIZURA](https://github.com/852wa/JIZURA)（MIT，浏览器字符 PV 引擎）的
 洛天依主题二开版。核心文件 0 修改；所有新能力在 `fork/` 目录，删掉即完全回退上游。
@@ -24,6 +24,12 @@
 | 🤖 AI 语义推荐（用户侧） | `node tools/tyx_recommend.js auto 歌词.txt` 离线预测段落/情绪；或接你自己的 AI JSON 做交叉验证。带依据、人工确认后才用 |
 
 配置都在工程文件的 `tianyi` 字段里（总开关 `enabled:false` 时与上游行为逐位一致）。
+
+## 文档索引
+
+- **使用/能力总览**：本文（`docs/TIANYI_README.md`）
+- **开发维护指南**（架构、铁律、门禁、边界、上游同步）：[`docs/FORK_GUIDE.md`](FORK_GUIDE.md)
+- **开发进度与日志**（时间线、验收矩阵、命令速查、待办）：[`docs/PROGRESS.md`](PROGRESS.md)
 
 ## 快速上手
 

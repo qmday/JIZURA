@@ -86,7 +86,16 @@ fork 文件全部在 12 个核心文件之后执行（编号 89 起，晚于上�
 1. `node --check` 所有 fork/tools 文件；
 2. fork 目录出现 `Math.random` 即失败（确定性 = 可golden测试的前提）；
 3. `python3 build.py --dev` 完整构建 + 断言产物包含 fork 代码；
-4. 推荐器 CLI 用 `fixtures/demo_lyrics.txt` 冒烟。
+4. **`node dev/fork_tests.js`** —— mini-host 单测（27 项：记法钩子 / 分段情绪 /
+   glyphFx / 字体注册 / off=original 逐位），无需浏览器，CI 与本地同一份；
+5. 推荐器 CLI 用 `fixtures/demo_lyrics.txt` 冒烟（含 sectionMoods/projectFragment 断言）。
+
+本地 QA 工具（真机过目用，`dev/www/`）：
+- `dev/fork_tests.js`：纯 Node 单测（上游注册表用 stub 替身，逻辑层全覆盖）；
+- `dev/www/ty_sheet.html`：多格联画表（決めCut / 标记剥离 / off 对比）；
+- `dev/www/ty_fonts_glyphs.html`：ty 字体真加载 + glyphFx 拆字渲染 + off=original；
+  两页引用的 bundle 用 `python3 dev/build_test.py tianyi --all-packs`（或整包
+  `python3 tools/fork_build.py --dev` 后拷产物）生成。验收清单见 `PROGRESS.md`。
 
 人工/重任务门（每个里程碑过了再进下一个，见 §6）：
 - **联系表验收**：`python3 dev/build_test.py <pack> fork/11p_<pack>.js` +
@@ -116,7 +125,9 @@ git fetch upstream && git merge upstream/main
 |---|---|---|---|
 | M0 | fork 骨架 + guard CI | `build.py` 注入 & 构建绿 | ✅ 本次交付 |
 | M1 | 天依风格包/情绪模版（纯数据） | 渲染冒烟 + bundle grep 命中 | ✅ 本次交付（待人工过目联系表） |
-| M2 | 配置 schema + 记法钩子 | §3 全通路单测 + §4 黄金回归脚本化 | ✅ 单测已过（mini host）,golden 待接 |
+| M2 | 配置 schema + 记法钩子 | §3 全通路单测 + §4 黄金回归脚本化 | ✅ 单测已过（mini host 27 项，`dev/fork_tests.js`），golden 待接 |
+| M2.5 | 分段情绪 sectionMoods + 推荐器打通（计划外加餐） | mini-host 14→14 项全绿 + guard 断言 | ✅ 交付 |
+| M2.6 | 中文字体 ×10（ty_*）+ 拆字点缀 glyphFx（计划外加餐） | mini-host 27 项全绿 + 无头 Chrome 真机 5 项全绿 | ✅ 交付 |
 | M3 | 逐字 LRC / VSQX→LRC 工具 | CLI 独立 + 渲染对照 | 待做 |
 | M4 | 卡拉OK taste 部件包装 | cost_scan 通过 + 无参降级测试 | 待做 |
 | M5 | 本地素材（贴纸）decor 支持 | 与同路径字体上传相同的失败路径测试 | 待做（上游不收，纯 fork） |

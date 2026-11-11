@@ -1,0 +1,99 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>body{margin:0;background:#16181c;font:12px monospace;color:#cde}</style></head><body>
+<canvas id="sheet" width="1240" height="760"></canvas>
+<script src="t_tianyi.js"></script>
+<script>
+(async () => {
+  const problems = [];
+  window.addEventListener('error', e => problems.push('ERR ' + e.message));
+  const _warn = console.warn; console.warn = (...a) => problems.push(a.map(String).join(' ').slice(0, 200));
+
+  const SHEET = document.getElementById('sheet');
+  const LYRICS = ['湖水把灯火折叠', '你数着月亮的旧', '蓝色在靠岸', '天依在唱歌'].join('\n');
+  const AUDIO = { beats: Array.from({ length: 60 }, (_, i) => i * 0.5), duration: 30,
+    energy: Array.from({ length: 300 }, (_, i) => 0.5 + 0.5 * Math.sin(i / 3)), energyRate: 10 };
+  const mk = (cfg, fonts) => Object.assign(J.defaultProject(), {
+    lyrics: LYRICS, style: 'tianyi', aspect: '16:9', seed: 11, unify: true,
+    tianyi: cfg, fonts: fonts || {},
+    timing: { bpm: 0, offset: 0, snap: false, tail: 0.5, lineScale: 1,
+      lineTimes: Object.fromEntries(LYRICS.split('\n').map((_, i) => [i, i * 2.2])) },
+  });
+
+  const out = { problems, asserts: [] };
+  const assert = (name, ok) => out.asserts.push([ok ? 'PASS' : 'FAIL', name]);
+
+  try {
+    /* A) fonts: ty_* keys attach + load */
+    J.lang = 'zh-Hans';
+    const pF = mk({ glyphFx: 'off' }, { display: 'ty_mashan', serif: 'ty_wenkai', body: 'ty_heiti' });
+    const planF = J.plan(pF, AUDIO);
+    const usedKeys = J.fontsOfPlan(planF).filter(k => String(k).startsWith('ty_'));
+    await J.ensureFonts(LYRICS + '天依蓝调夜航拆字0123456789', J.fontsOfPlan(planF)).catch(e => problems.push('FONTS ' + e));
+    const loaded = await Promise.all(usedKeys.map(async k => {
+      const f = J.faceOf(k);
+      try { await document.fonts.load(`${f.weight} 64px ${f.family}`, '湖水'); return document.fonts.check(`${f.weight} 64px ${f.family}`, '湖水'); }
+      catch (e) { return false; }
+    }));
+    assert('ty fonts used by plan: ' + usedKeys.join(','), usedKeys.length >= 2);
+    assert('ty fonts actually loaded via Google Fonts', loaded.length > 0 && loaded.every(Boolean));
+
+    /* B) glyphFx: plan carries piece parts, render does not crash */
+    const pG = mk({ glyphFx: 'lots', sectionMoods: { verse: 'tyblue', chorus: 'tyidol' } });
+    const planG = J.plan(pG, AUDIO);
+    const G = J.TY.GLYPHFX;
+    const pieceLines = planG.cuts.filter(c => G.enter.includes(c.enter) || G.exit.includes(c.exit)).length;
+    assert('plan overrides contain piece enter/exit (n=' + pieceLines + ')', pieceLines >= 2);
+
+    const r = new J.Renderer();
+    const sc = 0.46;
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(planG.W * sc); cv.height = Math.round(planG.H * sc);
+    const ctx = cv.getContext('2d');
+    let pieceDrawn = false;
+    const origDrawImage = CanvasRenderingContext2D.prototype.drawImage;
+    let draws = 0;
+    // render a few frames; explode/fall pieces draw glyphs via drawImage of piece sprites
+    for (const c of planG.cuts.filter(c => (c.text || '').trim())) {
+      const tMid = c.start + (c.end - c.start) * 0.94;      // exit window
+      try { r.frame(ctx, planG, tMid, { scale: sc }); draws++; } catch (e) { problems.push('RENDER ' + (e && e.message)); break; }
+    }
+    const tEnter = planG.cuts.find(c => (c.text || '').includes('蓝色'));
+    if (tEnter) { try { r.frame(ctx, planG, tEnter.start + 0.12, { scale: sc }); draws++; } catch (e) { problems.push('RENDER ' + (e && e.message)); } }
+    assert('rendered ' + draws + ' frames without exception', draws >= 3 && problems.filter(p => p.startsWith('RENDER')).length === 0);
+
+    /* C) off = original bit-exact: glyphFx off vs no tianyi → same plan (ignoring tianyi key) */
+    const pOff = J.plan(mk({ glyphFx: 'off' }), AUDIO);
+    const pNone = J.plan(Object.assign(J.defaultProject(), {
+      lyrics: LYRICS, style: 'tianyi', aspect: '16:9', seed: 11, unify: true,
+      fonts: {}, timing: { bpm: 0, offset: 0, snap: false, tail: 0.5, lineScale: 1,
+        lineTimes: Object.fromEntries(LYRICS.split('\n').map((_, i) => [i, i * 2.2])) },
+    }), AUDIO);
+    const strip = pl => JSON.stringify(Object.assign({}, pl, { tianyi: undefined }));
+    assert('glyphFx:off → plan identical to upstream (tianyi key ignored)', strip(pOff) === strip(pNone));
+
+    /* D) sheet: two cells — brush font frame + glyphFx explode frame */
+    const g = SHEET.getContext('2d');
+    const cell = (x, y, label, plan, t) => {
+      const w = 600, h = 340;
+      g.save(); g.translate(x, y);
+      g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+      const s = Math.min(w / plan.W, h / plan.H);
+      const c2 = document.createElement('canvas'); c2.width = plan.W; c2.height = plan.H;
+      r.frame(c2.getContext('2d'), plan, t, { scale: 1 });
+      g.drawImage(c2, 0, 0, plan.W * s, plan.H * s);
+      g.fillStyle = '#9cf'; g.font = '14px monospace'; g.fillText(label, 8, 20);
+      g.restore();
+    };
+    cell(10, 10, 'ty_mashan 毛笔楷书 (plan.fonts.display)', planF, (() => { const c = planF.cuts.find(c => (c.text || '').includes('蓝色')) || planF.cuts[0]; return c.start + Math.min(1.2, (c.end - c.start) * 0.5); })());
+    cell(630, 10, 'glyphFx:lots 爆散/崩落 (exit 窗口)', planG, (() => { const c = planG.cuts.find(c => (c.text || '').includes('湖水')); return c.start + (c.end - c.start) * 0.96; })());
+  } catch (e) {
+    problems.push('FATAL ' + (e && e.stack || e));
+  }
+  console.warn = _warn;
+  document.title = problems.length ? 'PROBLEMS' : (out.asserts.every(a => a[0] === 'PASS') ? 'GREEN' : 'ASSERT_FAILS');
+  document.body.insertAdjacentHTML('beforeend', '<pre style="white-space:pre-wrap">' +
+    out.asserts.map(a => a.join('  ')).join('\n') + '\n---\n' +
+    (problems.length ? problems.join('\n') : 'console clean') + '</pre>');
+  window.__QA = { problems, asserts: out.asserts };
+})();
+</script></body></html>

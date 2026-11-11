@@ -1,0 +1,99 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>body{margin:0;background:#16181c;font:12px monospace}</style></head><body>
+<canvas id="sheet" width="1240" height="1160"></canvas>
+<script src="jizura.js"></script>
+<script>
+(async () => {
+  const problems = [];
+  window.addEventListener('error', e => problems.push('ERR ' + e.message));
+  const _warn = console.warn; console.warn = (...a) => problems.push(a.map(String).join(' ').slice(0, 160));
+
+  const SHEET = document.getElementById('sheet');
+  const g = SHEET.getContext('2d');
+  const LYRICS = [
+    '[主歌]', '湖水把灯火折叠', '你数着月亮的旧', '', '[副歌]', '站台灯亮起', '蓝色在靠岸', '',
+    '[间奏 4]', '[桥]', '路灯熄灭了', '', '[副歌 2]', '站台灯亮起', '蓝色在靠岸', '',
+  ].join('\n');
+
+  const mkProject = cfg => Object.assign(J.defaultProject(), {
+    lyrics: LYRICS, style: cfg.style, aspect: '16:9', seed: cfg.seed || 7, unify: true,
+    tianyi: cfg.tianyi,
+    timing: { bpm: 0, offset: 0, snap: false, tail: 0.5, lineScale: 1,
+      lineTimes: Object.fromEntries(LYRICS.split('\n').map((_, i) => [i, i * 2.4])) },
+  }, cfg.proj || {});
+  const AUDIO = { beats: Array.from({ length: 60 }, (_, i) => i * 0.5), duration: 30,
+    energy: Array.from({ length: 300 }, (_, i) => 0.5 + 0.5 * Math.sin(i / 3)), energyRate: 10 };
+
+  await J.ensureFonts(LYRICS + '天依夜航副歌桥段0123456789XYL:/.', null).catch(e => problems.push('FONTS ' + e));
+
+  const cells = [];
+  const renderCell = async (label, cfg, pick, note) => {
+    const p = mkProject(cfg);
+    const plan = J.plan(p, AUDIO);
+    const r = new J.Renderer();
+    const sc = 0.459;
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(plan.W * sc); cv.height = Math.round(plan.H * sc);
+    const ctx = cv.getContext('2d');
+    const t = pick(plan);
+    r.frame(ctx, plan, t, { scale: sc });
+    cells.push({ label: label + '  |  t=' + t.toFixed(1) + 's' + (note ? '  |  ' + note : ''), cv });
+  };
+
+  const holdT = c => c.start + Math.min(1.6, (c.end - c.start) * 0.5);   // 入场均化后的段内帧
+
+  /* 単元1: 天依蓝调 × 副歌決めCut（ends 策略） */
+  await renderCell('① 天依蓝调 · 副歌決め(kime)', { style: 'tianyi', tianyi: {}, seed: 7 },
+    plan => holdT(plan.cuts.find(c => c.kime) || plan.cuts.find(c => (c.text || '').includes('蓝色')) || plan.cuts[0]));
+
+  /* 単元2: 天依夜航（深色霓虹面） */
+  await renderCell('② 天依夜航 · 副歌「蓝色在靠岸」', { style: 'tianyiNight', tianyi: {}, seed: 33 },
+    plan => holdT(plan.cuts.find(c => (c.text || '').includes('蓝色')) || plan.cuts[0]));
+
+  /* 単元3: strong 模式 → 桥段收束（hold still）+ starWords */
+  await renderCell('③ strong: 桥段 hold still', { style: 'tianyi', tianyi: { sections: 'strong', starWords: ['路灯'] }, seed: 51 },
+    plan => holdT(plan.cuts.find(c => (c.text || '').includes('熄灭')) || plan.cuts[0]), '*路灯*强调');
+
+  /* 単元4: off=original 证明：enabled:false 的 plan 与无 tianyi 的 plan 一致 */
+
+  const pA = J.plan(mkProject({ style: 'tianyi', tianyi: { enabled: false } }), AUDIO);
+  const pB = J.plan(mkProject({ style: 'tianyi', tianyi: undefined }), AUDIO);
+  const same = JSON.stringify(pA.cuts.map(c => [c.text, c.layout, c.enter, c.exit, c.hold])) ===
+               JSON.stringify(pB.cuts.map(c => [c.text, c.layout, c.enter, c.exit, c.hold]));
+  const pOn = J.plan(mkProject({ style: 'tianyi', tianyi: {} }), AUDIO);
+  const stripped = !pOn.cuts.some(c => /主歌|副歌|\[桥\]/.test(c.lineText || c.text || ''));
+  const bangOk = pOn.cuts.some(c => c.kime);
+  await renderCell('④ enabled:false（off=original ' + (same ? '一致✔' : '不一致✘✘✘') + '）', { style: 'tianyi', tianyi: { enabled: false }, seed: 77 },
+    plan => holdT(plan.cuts.find(c => (c.text || '').includes('月亮')) || plan.cuts[0]));
+
+  /* sheet composite: 2列×2段 实体 + 底部固定断言行 */
+  let row = 0, col = 0;
+  const cw = 596, ch = 336, cap = 20;
+  g.font = '12.5px monospace';
+  for (const { label, cv } of cells) {
+    const x = 16 + col * (cw + 8), y = 10 + row * (ch + cap + 6);
+    g.fillStyle = '#2a2e34'; g.fillRect(x - 2, y - 2, cw + 4, ch + 4);
+    g.fillStyle = '#111'; g.fillRect(x, y, cw, ch);
+    g.drawImage(cv, x, y, cw, ch);
+    g.fillStyle = '#cfe6f2'; g.fillText(label, x, y + ch + 15);
+    col += 1; if (col >= 2) { col = 0; row += 1; }
+  }
+  const yFix = 10 + 2 * (ch + cap + 6) + 14;
+  g.font = '13px monospace';
+  const ok = b => b ? '✔' : '✘';
+  g.fillStyle = stripped ? '#9ce8a8' : '#ff9a9a';
+  g.fillText('断言: 标记行不进画面 ' + ok(stripped), 16, yFix);
+  g.fillStyle = bangOk ? '#9ce8a8' : '#ff9a9a';
+  g.fillText('決めCut(kime, unify=on)生成 ' + ok(bangOk), 300, yFix);
+  g.fillStyle = same ? '#9ce8a8' : '#ff9a9a';
+  g.fillText('off=original ' + ok(same), 550, yFix);
+  g.fillStyle = problems.length ? '#ff9a9a' : '#9ce8a8';
+  g.fillText('console: ' + (problems.length ? problems.slice(0, 4).join(' // ') : '干净（无警告/异常）'), 16, yFix + 20);
+  document.title = 'SHEET_READY';
+})().catch(e => {
+  const g = document.getElementById('sheet').getContext('2d');
+  g.fillStyle = '#f88'; g.font = '16px monospace';
+  g.fillText('DRIVER ERROR: ' + (e && e.stack || e), 20, 40);
+  document.title = 'SHEET_ERROR';
+});
+</script></body></html>
