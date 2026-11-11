@@ -29,7 +29,8 @@ fork 文件全部在 12 个核心文件之后执行（编号 89 起，晚于上�
 | `fork/90_config.js` | `project.tianyi` 配置 schema / 校验 / 迁移（`J.TY`） | 无 |
 | `fork/91_styles_tianyi.js` | 风格包 `tianyi`（天依蓝调）/ `tianyiNight`（天依夜航），纯数据 | 无 |
 | `fork/92_moods_tianyi.js` | 10 套情绪模版（`J.MOODS.ty*`），纯数据，只引用已存在的部件键 | `91`（样式名） |
-| `fork/93_sections.js` | `J.plan` 外包裹钩子：结构记法 → `!` / `*词*` / 桥段 hold，fail-safe | `89` + `90` |
+| `fork/93_sections.js` | `J.plan` 外包裹钩子：结构记法 → `!` / `*词*` / 桥段 hold / 分段情绪 / 拆字点缀，fail-safe | `89` + `90`（+`94` 的池） |
+| `fork/94_fonts_tianyi.js` | 中文字体 `ty_*`（纯数据进 `J.FONTS`）+ 拆字部件池 `J.TY.GLYPHFX` | `02_fonts`（目录对象） |
 
 约定：新增某个类型的 fork 文件时，编号前缀保持递增；91+ 的纯数据文件不要引入
 控制流；一切共享常量先进 89，禁止在 90+ 里重复字面量。
@@ -53,7 +54,9 @@ fork 文件全部在 12 个核心文件之后执行（编号 89 起，晚于上�
   "sectionMoods": {         // 分段情绪：段类型 → 情绪模版键（fork/92）
     "verse": "tyblue",      // 主歌 → 蓝调深情
     "chorus": "tyidol"      // 副歌 → 偶像应援
-  }                         // 独立于 sections 开关；用户手写 overrides 逐键优先
+  },                        // 独立于 sections 开关；用户手写 overrides 逐键优先
+  "glyphFx": "off"          // 拆字点缀: off | some | lots —— 按概率把行的
+                            // enter/exit 换成笔画分解类演出（池见 fork/94）
 }
 ```
 
@@ -167,6 +170,16 @@ node tools/tyx_recommend.js merge ai.json 歌词.txt    # AI 建议 × 本地启
   段间"情绪差"来自版面/入出场/配色轮换；`fx`（glitch/motion 等区间）是上游全曲级
   配置，fork 不逐行伪造。用户的行级 overrides **逐键**优先（同键不覆盖，异键共存）。
   `tianyi.sectionMoods` 的值只认 fork/92 的 10 个 preset 键，未知值警告 + 跳过。
+- **glyphFx 的语义分层**：用户手写 overrides > `glyphFx`（接管该行 enter/exit）>
+  `sectionMoods`（版面/配色 + 入出场基线）> planner 随机。拆字不新增渲染机制——
+  它调度的是上游 `J.glyphs` 连通域分解部件（池在 fork/94，使用时仍按注册表逐键
+  校验，上游改名/移除会自动剔除并降级）。简笔字部件多、拆字效果好；连笔手写体
+  （ty_mashan/ty_liujian 等）分解出的部件少，配合时效果偏整字飞行，属正常。
+- **ty_* 字体的简繁覆盖**：SC 系（思源/站酷/马/柳/志/龙）简体全覆盖，繁体缺字
+  走回退链（PingFang/思源等）；`ty_wenkai` 为繁体字形（LXGW WenKai TC）。繁体
+  歌词建议主用 ty_wenkai/ty_songti/ty_heiti，其余按需。`gf` 规格改动需实测
+  css2 API（attachFamily 失败会静默回退系统字体，不报错——验收时用
+  `document.fonts.check` 确认）。
 - demo 构建（`demo/index.html`）是简体中文版整包，字体仍取自 Google Fonts
   （离线打开时回退系统字体，见上游说明）。
 

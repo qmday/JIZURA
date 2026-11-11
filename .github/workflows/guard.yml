@@ -44,6 +44,11 @@ jobs:
         run: |
           grep -c "tianyiWrapped" index.html
           grep -c "天依蓝调" index.html
+          grep -c "ty_mashan" index.html
+          grep -c "xhPieceParts" index.html
+
+      - name: fork 单测（mini-host，含 sectionMoods/glyphFx/字体注册）
+        run: node dev/fork_tests.js
 
       - name: 推荐器 CLI 冒烟（离线 fixture）
         run: |

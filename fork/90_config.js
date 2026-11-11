@@ -22,6 +22,9 @@ const DEFAULTS = Object.freeze({
   starWords: [],
   /* section type → mood preset key (fork/92): per-section part styling */
   sectionMoods: null,
+  /* 拆字 accents: 'off' | 'some' | 'lots' — inject piece-based (glyph-decomposition)
+     enter/exit overrides at seeded probability (pools + rates in fork/94) */
+  glyphFx: 'off',
 });
 
 const SCHEMA = {
@@ -30,6 +33,7 @@ const SCHEMA = {
   chorusBangs:  { type: 'enum',  values: ['off', 'first', 'ends', 'all'], affect: 'planner' },
   starWords:    { type: 'words', max: 8, maxLen: 12, affect: 'planner' },
   sectionMoods: { type: 'map',   maxKeys: 6, affect: 'planner' },   // value-preset validated in 93 (needs J.MOODS loaded)
+  glyphFx:      { type: 'enum',  values: ['off', 'some', 'lots'], affect: 'planner' },
 };
 
 /* validation: unknown keys are PRESERVED (kept as-is), illegal values fall back

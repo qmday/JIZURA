@@ -12,7 +12,10 @@
      · sections:'strong' 时桥段行在用户未指定时给 hold:'still'；
      · sectionMoods: { verse:'tyblue', chorus:'tyidol' } —— 分段情绪：从各模版
        (fork/92) 的部件池为本段每行生成 layout/enter/exit 覆盖（段内 sticky、
-       段间切换；独立于 sections 开关工作）。
+       段间切换；独立于 sections 开关工作）；
+     · glyphFx: 'off'|'some'|'lots' —— 拆字点缀：按 seed 概率把行的 enter/exit
+       换成上游部件级演出（笔画分解飞行/碎裂，池见 fork/94）；开启时接管
+       sectionMoods 的 enter/exit（版面/配色仍归段落情绪），用户手写仍最优先。
    安全性 / 不出问题契约：
      · 只有 project.tianyi 存在且 enabled !== false 才介入——无 opt-in ⇒ 与上游逐位一致；
      · 不写用户 project：全部变换发生在浅拷贝上（只替换 lyrics/overrides/tianyi 三个键）；
@@ -71,6 +74,30 @@ const moodPalette = (preset, rng) => {
     exit:   pool(M.exit,   J.EXIT    || {}, 2),
   };
 };
+
+/* ---- glyphFx：拆字点缀（概率注入部件级 enter/exit；版面/配色不动） ----
+   池与概率来自 fork/94（J.TY.GLYPHFX）。语义分层：用户手写 > glyphFx（接管
+   enter/exit）> sectionMoods（版面+入出场基线）> planner 随机。seed 逐行确定。 */
+function glyphFxPass(ovAdds, cfg, seed, linesAt, keptRow, rows, warns) {
+  const G = J.TY && J.TY.GLYPHFX;
+  const probs = G && G.prob && G.prob[cfg.glyphFx];
+  if (!probs) return;
+  const ok = (list, reg) => (list || []).filter(k => reg[k] && !reg[k].special);
+  const ep = ok(G.enter, J.ENTER || {}), xp = ok(G.exit, J.EXIT || {});
+  if (!ep.length && !xp.length) { warns.push('glyphFx: no piece part registered (upstream changed?)'); return; }
+  for (const ri of keptRow) {
+    if (isInterlude(rows[ri])) continue;
+    const n = Math.max(1, keptCount(rows[ri]));
+    for (let k = 0; k < n; k++) {
+      const li = linesAt[ri] + k;
+      const rng = J.rng(J.h(seed | 0, 707, li));
+      const add = {};
+      if (ep.length && rng.chance(probs.enter)) add.enter = rng.pick(ep);
+      if (xp.length && rng.chance(probs.exit)) add.exit = rng.pick(xp);
+      if (add.enter || add.exit) ovAdds.set(li, Object.assign({}, ovAdds.get(li) || {}, add));
+    }
+  }
+}
 
 /* returns a new project (shallow copy) or the ORIGINAL when nothing changed */
 function transform(project, cfg) {
@@ -152,6 +179,7 @@ function transform(project, cfg) {
       });
     }
   }
+  glyphFxPass(ovAdds, cfg, project.seed, linesAt, keptRow, rows, warns);
   if (warns.length) console.warn('JIZURA fork tianyi', warns.join(' / '));
   if (!changed && !ovAdds.size) return project;
 

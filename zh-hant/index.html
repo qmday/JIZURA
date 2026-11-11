@@ -60975,6 +60975,9 @@ const DEFAULTS = Object.freeze({
   starWords: [],
   /* section type → mood preset key (fork/92): per-section part styling */
   sectionMoods: null,
+  /* 拆字 accents: 'off' | 'some' | 'lots' — inject piece-based (glyph-decomposition)
+     enter/exit overrides at seeded probability (pools + rates in fork/94) */
+  glyphFx: 'off',
 });
 
 const SCHEMA = {
@@ -60983,6 +60986,7 @@ const SCHEMA = {
   chorusBangs:  { type: 'enum',  values: ['off', 'first', 'ends', 'all'], affect: 'planner' },
   starWords:    { type: 'words', max: 8, maxLen: 12, affect: 'planner' },
   sectionMoods: { type: 'map',   maxKeys: 6, affect: 'planner' },   // value-preset validated in 93 (needs J.MOODS loaded)
+  glyphFx:      { type: 'enum',  values: ['off', 'some', 'lots'], affect: 'planner' },
 };
 
 /* validation: unknown keys are PRESERVED (kept as-is), illegal values fall back
@@ -61047,7 +61051,7 @@ const S = {
       /* 高亮: 天依蓝全底 (决定段落变色时给副歌) */
       { bg: '#66CCFF', fg: '#0F1418', sub: '#38596E', accent: '#FFFFFF', accent2: '#2E3438', ink: '#0F1418', dim: '#56AEE0', ghostA: '#FFFFFF', ghostB: '#0F1418' },
     ],
-    fonts: { display: ['gothic_black', 'dela', 'round'], serif: ['mincho_light', 'mincho'], body: ['gothic_med'], mono: ['mono'] },
+    fonts: { display: ['gothic_black', 'dela', 'round', 'ty_heiti', 'ty_huangyou', 'ty_kuaile'], serif: ['mincho_light', 'mincho', 'ty_xiaowei', 'ty_mashan'], body: ['gothic_med', 'ty_wenkai'], mono: ['mono'] },
     texture: { grain: 0.4, paper: 0, scan: 0.2 }, ghost: 0.55, glow: 1.2,
     bias: { layout: { vcols: 1.6, mixed: 1.4, wave: 1.4, gloss: 1.3, center: 1.2 },
             enter: { pop: 1.6, wipe: 1.4, drop: 1.2, blur: 1.2 },
@@ -61063,7 +61067,7 @@ const S = {
       { bg: '#2A2E33', fg: '#66CCFF', sub: '#9BB3C2', accent: '#FFFFFF', accent2: '#FFB378', ink: '#66CCFF', dim: '#3B4148', ghostA: '#FFFFFF', ghostB: '#66CCFF' },
       { bg: '#F2F7FA', fg: '#1A232B', sub: '#5A6B76', accent: '#12A3D8', accent2: '#46464C', ink: '#1A232B', dim: '#DCE4EA', ghostA: '#12A3D8', ghostB: '#66CCFF', swap: true },
     ],
-    fonts: { display: ['zenkaku', 'dela'], serif: ['mincho'], body: ['sansui'], mono: ['mono'] },
+    fonts: { display: ['zenkaku', 'dela', 'ty_heiti', 'ty_huangyou'], serif: ['mincho', 'ty_liujian'], body: ['sansui', 'ty_wenkai'], mono: ['mono'] },
     texture: { grain: 0.55, paper: 0, scan: 0.45 }, ghost: 0.85, glow: 1.35,
     bias: { layout: { vcols: 1.8, marquee: 1.5, tile: 1.3, huge: 1.4, type: 1.2 },
             enter: { slice: 1.5, scramble: 1.4, flicker: 1.2, stretch: 1.3 },
@@ -61176,7 +61180,10 @@ J.MOODS.tynight = {
      · sections:'strong' 时桥段行在用户未指定时给 hold:'still'；
      · sectionMoods: { verse:'tyblue', chorus:'tyidol' } —— 分段情绪：从各模版
        (fork/92) 的部件池为本段每行生成 layout/enter/exit 覆盖（段内 sticky、
-       段间切换；独立于 sections 开关工作）。
+       段间切换；独立于 sections 开关工作）；
+     · glyphFx: 'off'|'some'|'lots' —— 拆字点缀：按 seed 概率把行的 enter/exit
+       换成上游部件级演出（笔画分解飞行/碎裂，池见 fork/94）；开启时接管
+       sectionMoods 的 enter/exit（版面/配色仍归段落情绪），用户手写仍最优先。
    安全性 / 不出问题契约：
      · 只有 project.tianyi 存在且 enabled !== false 才介入——无 opt-in ⇒ 与上游逐位一致；
      · 不写用户 project：全部变换发生在浅拷贝上（只替换 lyrics/overrides/tianyi 三个键）；
@@ -61235,6 +61242,30 @@ const moodPalette = (preset, rng) => {
     exit:   pool(M.exit,   J.EXIT    || {}, 2),
   };
 };
+
+/* ---- glyphFx：拆字点缀（概率注入部件级 enter/exit；版面/配色不动） ----
+   池与概率来自 fork/94（J.TY.GLYPHFX）。语义分层：用户手写 > glyphFx（接管
+   enter/exit）> sectionMoods（版面+入出场基线）> planner 随机。seed 逐行确定。 */
+function glyphFxPass(ovAdds, cfg, seed, linesAt, keptRow, rows, warns) {
+  const G = J.TY && J.TY.GLYPHFX;
+  const probs = G && G.prob && G.prob[cfg.glyphFx];
+  if (!probs) return;
+  const ok = (list, reg) => (list || []).filter(k => reg[k] && !reg[k].special);
+  const ep = ok(G.enter, J.ENTER || {}), xp = ok(G.exit, J.EXIT || {});
+  if (!ep.length && !xp.length) { warns.push('glyphFx: no piece part registered (upstream changed?)'); return; }
+  for (const ri of keptRow) {
+    if (isInterlude(rows[ri])) continue;
+    const n = Math.max(1, keptCount(rows[ri]));
+    for (let k = 0; k < n; k++) {
+      const li = linesAt[ri] + k;
+      const rng = J.rng(J.h(seed | 0, 707, li));
+      const add = {};
+      if (ep.length && rng.chance(probs.enter)) add.enter = rng.pick(ep);
+      if (xp.length && rng.chance(probs.exit)) add.exit = rng.pick(xp);
+      if (add.enter || add.exit) ovAdds.set(li, Object.assign({}, ovAdds.get(li) || {}, add));
+    }
+  }
+}
 
 /* returns a new project (shallow copy) or the ORIGINAL when nothing changed */
 function transform(project, cfg) {
@@ -61316,6 +61347,7 @@ function transform(project, cfg) {
       });
     }
   }
+  glyphFxPass(ovAdds, cfg, project.seed, linesAt, keptRow, rows, warns);
   if (warns.length) console.warn('JIZURA fork tianyi', warns.join(' / '));
   if (!changed && !ovAdds.size) return project;
 
@@ -61365,6 +61397,68 @@ J.plan = function (project, audio) {
   }
 };
 J.plan.tianyiWrapped = true;
+})();
+
+/* ============================================================
+   天依 fork — 94: 中文字体扩展 + 拆字（部件级）部件池 —— 纯数据层
+   (contract: FORK_GUIDE.md — no upstream file is modified)
+
+   字体：往 J.FONTS 注册 ty_* 键即可全链路接入，因为上游机制是：
+     · faceOf(key)：键没有语言映射（J.LANG_FACES[*].map）时回退键自身的
+       family —— 对中文字体正是想要的行为（简繁歌词都用字体本尊渲染）；
+     · fontsOfPlan/ensureFonts：按 gf 规格逐 family 懒挂 Google Fonts
+       stylesheet —— 新键在计划用到之前零成本，用到时自动加载；
+     · おまかせ随机（08b_omakase）与 project.fonts（resolveStyle）都直接
+       认 J.FONTS 键 —— 新键自动进入随机池与用户字体选择。
+   gf 规格全部经 fonts.googleapis.com/css2 实测（2026-11），权重轴如下。
+   简繁覆盖：SC 系字体简体全覆盖；LXGW WenKai TC 为繁体字形（简体缺字
+   走 fb 回退链）。ZCOOL/Ma/Liu/Zhi/Long 系为 SC 字形，繁体缺字同样回退。
+
+   拆字：上游 02_fonts.js 已有完整的 GlyphCache 连通域分解（把字形 alpha
+   蒙版拆成笔画/部件/点，逐件独立飞行、碎裂、下落），并已内置大量部件级
+   演出（assemble/爆散/崩落/…，见 pools）。本 fork 不新增渲染机制，只做
+   配置化调度：J.TY.GLYPHFX 暴露部件键池 + 概率，93_sections 按 seed 概率
+   把行级 enter/exit 覆盖注入拆字部件（用户手写永远优先）。
+   ============================================================ */
+(() => {
+'use strict';
+
+if (!J.FONTS) { console.warn('JIZURA fork: 94_fonts needs 02_fonts; skipped'); return; }
+if (!J.TY) J.TY = {};                 // 90 未载入时的最小兜底（94 不依赖其内容）
+
+const SANS_FB  = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
+const SERIF_FB = '"Noto Serif SC","Songti SC","Noto Serif CJK SC",serif';
+
+const F = (label, family, weight, kind, fb, gf) =>
+  ({ label, family: `"${family}"`, weight, kind, fb, gf });
+
+const FONTS = {
+  /* —— 重判力 / 标题 —— */
+  ty_heiti:    F('思源黑体 Black', 'Noto Sans SC', 900, 'gothic',  SANS_FB,  'Noto+Sans+SC:wght@900'),
+  ty_songti:   F('思源宋体 Black', 'Noto Serif SC', 900, 'mincho',  SERIF_FB, 'Noto+Serif+SC:wght@900'),
+  ty_huangyou: F('站酷庆科黄油体', 'ZCOOL QingKe HuangYou', 400, 'display', SANS_FB, 'ZCOOL+QingKe+HuangYou'),
+  ty_kuaile:   F('站酷快乐体',   'ZCOOL KuaiLe', 400, 'round',   SANS_FB,  'ZCOOL+KuaiLe'),
+  ty_xiaowei:  F('站酷小薇体',   'ZCOOL XiaoWei', 400, 'mincho',  SERIF_FB, 'ZCOOL+XiaoWei'),
+  /* —— 手写 / 笔刷 —— */
+  ty_wenkai:   F('霞鹜文楷（繁）', 'LXGW WenKai TC', 400, 'hand',  SERIF_FB, 'LXGW+WenKai+TC:wght@300;400;700'),
+  ty_mashan:   F('马善政毛笔楷书', 'Ma Shan Zheng', 400, 'brush',  SERIF_FB, 'Ma+Shan+Zheng'),
+  ty_liujian:  F('柳建毛草',     'Liu Jian Mao Cao', 400, 'brush', SERIF_FB, 'Liu+Jian+Mao+Cao'),
+  ty_zhimang:  F('志莽行书',     'Zhi Mang Xing', 400, 'brush',   SERIF_FB, 'Zhi+Mang+Xing'),
+  ty_longcang: F('龙藏手写',     'Long Cang', 400, 'hand',       SERIF_FB, 'Long+Cang'),
+};
+for (const [k, f] of Object.entries(FONTS)) if (!J.FONTS[k]) J.FONTS[k] = f;   // never overwrite an existing/user key
+
+/* 拆字（部件级）演出池：全部是上游已注册的 enter/exit 键（uses J.glyphs pieceFns）。
+   使用时仍按注册表逐键校验（不存在/ special 自动剔除 → 未来上游改名也安全）。 */
+J.TY.GLYPHFX = {
+  enter: ['assemble', 'crumple', 'windBlown', 'strokeOrder', 'xePieceRain', 'xePieceVortex', 'xePieceStrata', 'xePiecePile'],
+  exit:  ['explode', 'fall', 'drift', 'dissolve', 'xhPieceStrata', 'xhPieceThin', 'xhPieceSpin', 'xhPieceHeap', 'xhPieceParts'],
+  /* 命中概率（每行独立、seed 确定）：some = 点缀，lots = 大面积 */
+  prob: {
+    some: { enter: 0.3, exit: 0.22 },
+    lots: { enter: 0.6, exit: 0.5 },
+  },
+};
 })();
 
 </script>

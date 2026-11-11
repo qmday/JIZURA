@@ -18,7 +18,7 @@ const S = {
       /* 高亮: 天依蓝全底 (决定段落变色时给副歌) */
       { bg: '#66CCFF', fg: '#0F1418', sub: '#38596E', accent: '#FFFFFF', accent2: '#2E3438', ink: '#0F1418', dim: '#56AEE0', ghostA: '#FFFFFF', ghostB: '#0F1418' },
     ],
-    fonts: { display: ['gothic_black', 'dela', 'round'], serif: ['mincho_light', 'mincho'], body: ['gothic_med'], mono: ['mono'] },
+    fonts: { display: ['gothic_black', 'dela', 'round', 'ty_heiti', 'ty_huangyou', 'ty_kuaile'], serif: ['mincho_light', 'mincho', 'ty_xiaowei', 'ty_mashan'], body: ['gothic_med', 'ty_wenkai'], mono: ['mono'] },
     texture: { grain: 0.4, paper: 0, scan: 0.2 }, ghost: 0.55, glow: 1.2,
     bias: { layout: { vcols: 1.6, mixed: 1.4, wave: 1.4, gloss: 1.3, center: 1.2 },
             enter: { pop: 1.6, wipe: 1.4, drop: 1.2, blur: 1.2 },
@@ -34,7 +34,7 @@ const S = {
       { bg: '#2A2E33', fg: '#66CCFF', sub: '#9BB3C2', accent: '#FFFFFF', accent2: '#FFB378', ink: '#66CCFF', dim: '#3B4148', ghostA: '#FFFFFF', ghostB: '#66CCFF' },
       { bg: '#F2F7FA', fg: '#1A232B', sub: '#5A6B76', accent: '#12A3D8', accent2: '#46464C', ink: '#1A232B', dim: '#DCE4EA', ghostA: '#12A3D8', ghostB: '#66CCFF', swap: true },
     ],
-    fonts: { display: ['zenkaku', 'dela'], serif: ['mincho'], body: ['sansui'], mono: ['mono'] },
+    fonts: { display: ['zenkaku', 'dela', 'ty_heiti', 'ty_huangyou'], serif: ['mincho', 'ty_liujian'], body: ['sansui', 'ty_wenkai'], mono: ['mono'] },
     texture: { grain: 0.55, paper: 0, scan: 0.45 }, ghost: 0.85, glow: 1.35,
     bias: { layout: { vcols: 1.8, marquee: 1.5, tile: 1.3, huge: 1.4, type: 1.2 },
             enter: { slice: 1.5, scramble: 1.4, flicker: 1.2, stretch: 1.3 },
